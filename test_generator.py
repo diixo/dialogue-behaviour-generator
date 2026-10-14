@@ -26,8 +26,6 @@ class PolicyTests(unittest.TestCase):
         r=random.Random(12)
         for i in range(100): validate_episode(generate_episode(r,str(i),'test'))
 
-if __name__=='__main__': unittest.main()
-
 class DatasetTests(unittest.TestCase):
     def test_messages_exactly_match_turns(self):
         from generator import episode_messages
@@ -39,11 +37,16 @@ class DatasetTests(unittest.TestCase):
         before=s.snapshot()
         select_action(s)
         self.assertEqual(before,s.snapshot())
-    def test_chatml_no_hidden_user(self):
+    def test_sft_no_hidden_user_or_format_markers(self):
         from generator import compile_views
-        from compile_chatml import compile_row
+        from compile_sft import compile_row
         e=generate_episode(random.Random(19),'x','train')
         rows=compile_views(e)['history']
         formatted=compile_row(rows[-1],'history')
-        self.assertNotIn('[HIDDEN_USER]',formatted['prompt'])
-        self.assertTrue(formatted['completion'].endswith('<|im_end|>'))
+        self.assertEqual(formatted['messages'][1:], rows[-1]['history'])
+        self.assertEqual(formatted['completion'], rows[-1]['target_response'])
+        self.assertNotIn('hidden_user', formatted)
+        self.assertNotIn('<|im_', str(formatted))
+
+
+if __name__=='__main__': unittest.main()
