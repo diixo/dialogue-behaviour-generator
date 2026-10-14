@@ -13,10 +13,24 @@ from pathlib import Path
 from typing import Optional
 
 SLOTS = ('time_of_day', 'activity', 'mood')
+
 USER_VALUES = {
-    'time_of_day': [('morning', ['It is morning here.', 'It is still morning.']), ('afternoon', ['It is afternoon.', 'It is the afternoon here.']), ('evening', ['It is evening.', 'It is evening here.'])],
-    'activity': [('reading', ['I am reading a book.', 'I am reading.']), ('working', ['I am working on a project.', 'Just working.']), ('listening_to_music', ['I am listening to music.', 'Just listening to some music.']), ('relaxing', ['I am relaxing.', 'Just taking it easy.'])],
-    'mood': [('calm', ['I feel calm.', 'Pretty calm.']), ('happy', ['I feel happy.', 'I am in a good mood.']), ('tired', ['I feel tired.', 'A little tired.'])],
+    'time_of_day': [
+        ('morning', ['It is morning here.', 'It is still morning.']),
+        ('afternoon', ['It is afternoon.', 'It is the afternoon here.']),
+        ('evening', ['It is evening.', 'It is evening here.'])
+        ],
+    'activity': [
+        ('reading', ['I am reading a book.', 'I am reading.']),
+        ('working', ['I am working on a project.', 'Just working.']),
+        ('listening_to_music', ['I am listening to music.', 'Just listening to some music.']),
+        ('relaxing', ['I am relaxing.', 'Just taking it easy.'])
+        ],
+    'mood': [
+        ('calm', ['I feel calm.', 'Pretty calm.']),
+        ('happy', ['I feel happy.', 'I am in a good mood.']),
+        ('tired', ['I feel tired.', 'A little tired.'])
+        ],
 }
 TOPICS = {'reading':'books', 'working':'work', 'listening_to_music':'music', 'relaxing':'relaxing'}
 ASK_TEXT = {
@@ -56,13 +70,13 @@ class State:
     last_action: Optional[str] = None
 
     def snapshot(self):
-        return {'known': dict(self.known), 'statuses':dict(self.statuses),
-                'asked':list(self.asked), 'pending':self.pending,
-                'attempts':dict(self.attempts), 'topic':self.topic,
-                'followup_used':sorted(self.followup_used),
-                'user_question_pending':self.user_question_pending,
-                'wants_exit':self.wants_exit, 'phase':self.phase,
-                'last_action':self.last_action}
+        return {'known': dict(self.known), 'statuses': dict(self.statuses),
+                'asked': list(self.asked), 'pending': self.pending,
+                'attempts': dict(self.attempts), 'topic':self.topic,
+                'followup_used': sorted(self.followup_used),
+                'user_question_pending': self.user_question_pending,
+                'wants_exit': self.wants_exit, 'phase': self.phase,
+                'last_action': self.last_action}
 
 @dataclass(frozen=True)
 class Action:
