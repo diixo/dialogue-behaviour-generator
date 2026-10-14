@@ -31,6 +31,11 @@ class ExtractionDataset():
 
 
 # TODO
+def extraction_collate_batch(batch, padding_value, label_padding_value=-100):
+    pass
+
+
+# TODO
 class HistoryDataset():
 
     def __init__(self, tokenizer, split="train") -> None:
@@ -46,6 +51,10 @@ class HistoryDataset():
     def __getitem__(self, index):
         pass
 
+
+# TODO:
+def history_collate_batch(batch, padding_value, label_padding_value=-100):
+    pass
 
 # TODO
 class PolicyDataset():
@@ -64,6 +73,11 @@ class PolicyDataset():
         pass
 
 
+# TODO:
+def policy_collate_batch(batch, padding_value, label_padding_value=-100):
+    pass
+
+
 # TODO
 class ResponseDataset():
 
@@ -79,3 +93,8 @@ class ResponseDataset():
 
     def __getitem__(self, index):
         pass
+
+
+# TODO:
+def response_collate_batch(batch, padding_value, label_padding_value=-100):
+    pass
