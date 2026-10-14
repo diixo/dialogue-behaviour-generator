@@ -1,0 +1,32 @@
+{
+  "version": "0.1.0",
+  "seed": 42,
+  "counts": {
+    "train": 2000,
+    "validation": 200,
+    "test": 200
+  },
+  "notes": [
+    "No pretrained model used; template-based oracle simulation.",
+    "Current splits share template families; evaluate unseen templates separately.",
+    "Policy labels are supervised only, not proof of autonomous conversational ability."
+  ],
+  "train_rows": {
+    "policy": 11627,
+    "response": 11627,
+    "history": 11627,
+    "extraction": 9627
+  },
+  "validation_rows": {
+    "policy": 1121,
+    "response": 1121,
+    "history": 1121,
+    "extraction": 921
+  },
+  "test_rows": {
+    "policy": 1137,
+    "response": 1137,
+    "history": 1137,
+    "extraction": 937
+  }
+}
