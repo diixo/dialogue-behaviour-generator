@@ -1,1 +1,5 @@
-# No external dependencies. Python >=3.10
+# Python >=3.10. Generation and structured export use only the standard library.
+# Dependencies for tokenized datasets and the training scaffold:
+torch
+transformers
+accelerate
