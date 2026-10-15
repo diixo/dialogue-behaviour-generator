@@ -100,26 +100,27 @@ def compile_row(row, view):
 def run(src, dest, view, json_dest=None):
     src, dest = Path(src), Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    records = [] if json_dest is not None else None
-    with src.open(encoding='utf-8') as source, dest.open('w', encoding='utf-8') as output:
+    records = []
+    with src.open(encoding='utf-8') as source, dest.open('w', encoding='utf-8', newline='\n') as output:
         for line in source:
             if not line.strip():
                 continue
             record = compile_row(json.loads(line), view)
             output.write(json.dumps(record, ensure_ascii=False) + '\n')
-            if records is not None:
-                records.append(record)
+            records.append(record)
+    json_text = json.dumps(records, ensure_ascii=False, indent=2) + '\n'
+    dest.with_suffix('.json').write_text(json_text, encoding='utf-8', newline='\n')
     if json_dest is not None:
         json_dest = Path(json_dest)
         json_dest.parent.mkdir(parents=True, exist_ok=True)
-        json_dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        json_dest.write_text(json_text, encoding='utf-8', newline='\n')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', default='data')
     parser.add_argument('--out', default='data/sft')
-    parser.add_argument('--json-out', help='Also export matching JSON arrays to this directory')
+    parser.add_argument('--json-out', help='Export an additional JSON copy here; adjacent JSON files are always written')
     args = parser.parse_args()
     for split in SPLITS:
         for view in VIEWS:
