@@ -22,11 +22,11 @@ from pathlib import Path
 import random
 
 from compile_sft import parse_action, serialize_action
+from data import corpus_hash, read_episodes, segment, state_text, ubar_user
 from generator import (ACKS, ASK_TEXT, CLOSES, FOLLOWUP, SLOTS, Action, State,
                        UserSimulator, commit_action, compile_views, observe,
                        select_action, write_jsonl)
 from inference import Prediction, PredictorRouter, Request, parse_extraction, parse_state
-from training_data import corpus_hash, read_episodes, segment, state_text, ubar_user
 
 MODES = ('dst', 'extraction', 'policy', 'response', 'history', 'policy_response', 'full', 'rollout')
 ANSWERS = ('I do not have a time of day myself, but I would be happy to chat.',

@@ -17,12 +17,12 @@ import torch
 
 from benchmark import response_variants, run_benchmark
 from compile_sft import serialize_action
+from data import (SEGMENTS, SPECIAL_TOKENS, SessionDataset, TaskDataset, encode, segment,
+                  state_text, task_records, ubar_header, ubar_user)
 from dialogue_format import get_format
 from generator import Action, State, commit_action, compile_views, generate_episode, select_action
 from inference import HFPredictor, Prediction, Request, parse_extraction, parse_state
 from trainer import train_experiment
-from training_data import (SEGMENTS, SPECIAL_TOKENS, SessionDataset, TaskDataset, encode, segment,
-                           state_text, task_records, ubar_header, ubar_user)
 
 
 def tokenizer_for(episodes):

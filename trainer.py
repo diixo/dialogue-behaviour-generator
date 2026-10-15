@@ -15,9 +15,8 @@ from functools import partial
 import json
 from pathlib import Path
 
-from data import collate_batch
+from data import TASKS, SPECIAL_TOKENS, collate_batch, corpus_hash, make_dataset, read_episodes
 from dialogue_format import FORMATS
-from training_data import TASKS, SPECIAL_TOKENS, corpus_hash, make_dataset, read_episodes
 
 
 def dataset_stats(dataset):

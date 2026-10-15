@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
+from data import SEGMENTS, encode, task_messages, ubar_header
 from dialogue_format import get_format
 from generator import State, SLOTS, USER_VALUES, FOLLOWUP
-from training_data import SEGMENTS, encode, task_messages, ubar_header
 
 REACTIONS = {'DIRECT_ANSWER', 'MULTI_FACT', 'REFUSAL', 'NON_ANSWER', 'COUNTER_QUESTION',
              'TOPIC_SHIFT', 'EXIT', 'ACKNOWLEDGEMENT', 'DIRECT_FOLLOWUP', 'NO_TURN'}
