@@ -45,8 +45,8 @@ conversations separately before drawing conclusions about generalization.
 ### INFO
 
 У каждого примера должна быть понятная модели инструкция:
-```text
 
+```text
 Извлеки наблюдение из сообщения.
 Выбери следующее действие.
 Сформулируй ответ для заданного действия.
@@ -54,8 +54,8 @@ conversations separately before drawing conclusions about generalization.
 ```
 
 Если нам нужна явная зависимость, как в SimpleTOD, обучающий пример должен выглядеть иначе:
-```text
 
+```text
 Вход: история и последнее сообщение пользователя
 
 Цель:
