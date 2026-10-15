@@ -1,5 +1,5 @@
 # Python >=3.10. Generation and structured export use only the standard library.
-# Dependencies for tokenized datasets and the training scaffold:
+# Dependencies for tokenized datasets, training and generation benchmarks:
 torch
-transformers
-accelerate
+transformers>=4.56,<5
+accelerate>=1.0
