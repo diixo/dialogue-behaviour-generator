@@ -1,4 +1,4 @@
-"""Dialogue Behaviour Generator v0.1 — standalone, standard-library only.
+"""Dialogue Behaviour Generator v0.2 — standalone, standard-library only.
 
 Usage: python generator.py --out output --train 2000 --validation 200 --test 200 --seed 42
 All train/validation/test episodes are generated separately. Current template families
@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -68,6 +69,15 @@ class State:
     wants_exit: bool = False
     phase: str = 'opening'
     last_action: Optional[str] = None
+
+    @classmethod
+    def from_snapshot(cls, snapshot):
+        """Restore observable dialogue memory, including mutable collection types."""
+        if set(snapshot) != set(cls.__dataclass_fields__):
+            raise ValueError('Expected a complete dialogue state snapshot')
+        values = deepcopy(snapshot)
+        values['followup_used'] = set(values['followup_used'])
+        return cls(**values)
 
     def snapshot(self):
         return {'known': dict(self.known), 'statuses': dict(self.statuses),
@@ -247,16 +257,24 @@ def compile_views(ep):
         a=turn['action']
         common={'episode_id':ep['episode_id'],'turn':turn['index'],'persona':ep['persona'],
                 'history':list(history)}
-        policy.append({**common,'target_action':{'type':a['type'],'target':a['target']}})
-        response.append({**common,'action':{'type':a['type'],'target':a['target']},
+        policy.append({**common,'state':deepcopy(turn['state_before']),
+                       'target_action':{'type':a['type'],'target':a['target']}})
+        response.append({**common,'state':deepcopy(turn['state_before']),
+                         'action':{'type':a['type'],'target':a['target']},
                          'target_response':turn['assistant']})
         history_only.append({**common,'target_response':turn['assistant']})
         history.append({'role':'assistant','content':turn['assistant']})
         if turn['user'] is not None:
+            # The assistant action has already happened when extraction reads the user.
+            before_user = State.from_snapshot(turn['state_before'])
+            commit_action(before_user, Action(**a))
             history.append({'role':'user','content':turn['user']})
             extraction.append({'episode_id':ep['episode_id'],'turn':turn['index'],
+                               'next_turn':turn['index'] + 1,
                                'history_before':history[:-1], 'utterance':turn['user'],
-                               'target_observation':turn['observation']})
+                               'state_before':before_user.snapshot(),
+                               'target_observation':deepcopy(turn['observation']),
+                               'target_state':deepcopy(turn['state_after'])})
     return {'policy':policy,'response':response,'history':history_only,'extraction':extraction}
 
 def validate_episode(ep):
@@ -292,7 +310,7 @@ def write_jsonl(path, records):
 
 def generate_all(out,counts,seed):
     root=Path(out);root.mkdir(parents=True,exist_ok=True)
-    manifest={'version':'0.1.0','seed':seed,'counts':counts,'notes':[
+    manifest={'version':'0.2.0','seed':seed,'counts':counts,'notes':[
         'No pretrained model used; template-based oracle simulation.',
         'Current splits share template families; evaluate unseen templates separately.',
         'Policy labels are supervised only, not proof of autonomous conversational ability.'

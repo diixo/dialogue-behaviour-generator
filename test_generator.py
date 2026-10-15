@@ -27,6 +27,53 @@ class PolicyTests(unittest.TestCase):
         for i in range(100): validate_episode(generate_episode(r,str(i),'test'))
 
 class DatasetTests(unittest.TestCase):
+    def test_extraction_updates_memory_and_matches_next_turn(self):
+        from generator import compile_views
+        reactions = set()
+        for seed in range(50):
+            ep = generate_episode(random.Random(seed), str(seed), 'train')
+            views = compile_views(ep)
+            self.assertEqual(len(views['extraction']), len(views['history']) - 1)
+            self.assertNotIn('state', views['history'][0])
+            for extracted in views['extraction']:
+                observation = extracted['target_observation']
+                reactions.add(observation['reaction'])
+                restored = State.from_snapshot(extracted['state_before'])
+                observe(restored, observation)
+                self.assertEqual(restored.snapshot(), extracted['target_state'])
+                self.assertIsNone(restored.pending)
+                if observation['refused']:
+                    self.assertEqual(restored.statuses[observation['refused']], 'declined')
+                for slot, value in extracted['state_before']['known'].items():
+                    self.assertEqual(restored.known[slot], observation['facts'].get(slot, value))
+                next_turn = extracted['turn'] + 1
+                self.assertEqual(extracted['next_turn'], next_turn)
+                context = extracted['history_before'] + [{'role':'user', 'content':extracted['utterance']}]
+                for view in ('policy', 'response', 'history'):
+                    row = views[view][next_turn]
+                    self.assertEqual(row['episode_id'], extracted['episode_id'])
+                    self.assertEqual(row['history'], context)
+                    if view != 'history':
+                        self.assertEqual(row['state'], extracted['target_state'])
+                action = select_action(restored)
+                self.assertEqual({'type':action.type, 'target':action.target}, views['policy'][next_turn]['target_action'])
+                self.assertEqual(views['policy'][next_turn]['target_action'], views['response'][next_turn]['action'])
+                self.assertEqual(views['response'][next_turn]['target_response'], views['history'][next_turn]['target_response'])
+            self.assertEqual(views['response'][-1]['action']['type'], 'CLOSE')
+        self.assertTrue({'REFUSAL', 'NON_ANSWER', 'MULTI_FACT', 'TOPIC_SHIFT', 'COUNTER_QUESTION', 'EXIT'} <= reactions)
+
+    def test_state_restore_does_not_share_memory_with_snapshot(self):
+        state = State()
+        state.followup_used.add('books')
+        snapshot = state.snapshot()
+        restored = State.from_snapshot(snapshot)
+        commit_action(restored, Action('FOLLOW_UP', 'python'))
+        restored.known['mood'] = 'happy'
+        self.assertEqual(snapshot, state.snapshot())
+        self.assertEqual(restored.followup_used, {'books', 'python'})
+        with self.assertRaisesRegex(ValueError, 'complete dialogue state'):
+            State.from_snapshot({'known': {}})
+
     def test_messages_exactly_match_turns(self):
         from generator import episode_messages
         e=generate_episode(random.Random(14),'x','train')
