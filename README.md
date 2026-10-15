@@ -30,7 +30,11 @@ Each `.jsonl` is accompanied by a `.json` array with identical records and `inde
 exports. Chat formatting is applied at runtime, with plain text as the default.
 
 ## Run
+```bash
+python trainer.py --task ubar --epochs 2 --output outputs
+```
 
+Full lifecycle:
 ```bash
 python -m pip install -r requirements.txt
 python generator.py --out data --train 2000 --validation 200 --test 200 --seed 42

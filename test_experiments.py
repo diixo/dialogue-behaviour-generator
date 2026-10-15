@@ -270,12 +270,15 @@ class TrainerIntegrationTests(unittest.TestCase):
                     before = model.transformer.h[0].attn.c_attn.weight.detach().clone()
                     output = Path(temporary) / task
                     metrics = train_experiment(model, tokenizer, train, validation, task=task, output=output,
-                        model_name='tiny-random-gpt2-test', max_length=2048, max_steps=1,
+                        model_name='tiny-random-gpt2-test', max_length=2048, epochs=2,
                         batch_size=1, warmup_ratio=0, use_cpu=True)
-                    self.assertEqual(metrics['global_step'], 1)
+                    manifest = json.loads((output / 'experiment.json').read_text())
+                    self.assertEqual(manifest['epochs'], 2)
+                    self.assertEqual(metrics['epoch'], 2)
+                    self.assertEqual(metrics['global_step'], 2 * manifest['train']['examples'])
                     self.assertTrue(math.isfinite(metrics['eval_loss']))
                     self.assertFalse(torch.equal(before, model.transformer.h[0].attn.c_attn.weight))
-                    self.assertEqual(json.loads((output / 'experiment.json').read_text())['task'], task)
+                    self.assertEqual(manifest['task'], task)
                     reloaded = HFPredictor(output, local_files_only=True, max_new_tokens=2)
                     row = compile_views(validation[0])['extraction'][0]
                     history = row['history_before'] + [{'role': 'user', 'content': row['utterance']}]
