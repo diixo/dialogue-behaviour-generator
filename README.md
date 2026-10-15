@@ -2,7 +2,14 @@
 
 Deterministic synthetic English dialogues for learning memory, dialogue actions,
 topic follow-ups and appropriate termination. Default corpus: 2,000/200/200 episodes
-for train/validation/test. The trainer is a scaffold; no trained model is included.
+for train/validation/test. All training modes default to pretrained `gpt2`; no trained checkpoint is included.
+
+
+#### Run django-server:
+```bash
+py ui/manage.py runserver
+```
+
 
 ## Data
 
@@ -28,10 +35,17 @@ exports. Chat formatting is applied at runtime, with plain text as the default.
 python -m pip install -r requirements.txt
 python generator.py --out data --train 2000 --validation 200 --test 200 --seed 42
 python compile_sft.py --data data --out data/sft
+python trainer.py --task ubar --output runs/ubar
+python benchmark.py --model runs/ubar --mode full --output runs/eval-ubar
 python -m unittest discover -v
 ```
 
 Generation and SFT export themselves require only the Python standard library.
+
+Training tasks: `dst` (state only), `extraction`, `policy`, `response`, `history`, `ubar`.
+Benchmark tasks separately or use `response` (reference state/action), `policy_response`
+(reference state), `full` (predicted state/action), and `rollout` (own dialogue context).
+Reports group errors by reaction, action, target and depth; see `--help` for options.
 
 `data.py` provides individual datasets, `DialogueChainDataset` and `chain_collate_batch`
 for four aligned task batches. `compile_sft.build_messages` also accepts predicted

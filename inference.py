@@ -1,0 +1,193 @@
+"""Shared model inference and strict output parsers for training experiments."""
+
+from dataclasses import dataclass, field
+import json
+from pathlib import Path
+
+from dialogue_format import get_format
+from generator import State, SLOTS, USER_VALUES, FOLLOWUP
+from training_data import SEGMENTS, encode, task_messages, ubar_header
+
+REACTIONS = {'DIRECT_ANSWER', 'MULTI_FACT', 'REFUSAL', 'NON_ANSWER', 'COUNTER_QUESTION',
+             'TOPIC_SHIFT', 'EXIT', 'ACKNOWLEDGEMENT', 'DIRECT_FOLLOWUP', 'NO_TURN'}
+
+
+def validate_state(state):
+    def require(condition):
+        if not condition:
+            raise ValueError('Invalid dialogue state schema or value')
+    require(isinstance(state, dict) and set(state) == set(State().snapshot()))
+    for key in ('known', 'statuses', 'attempts'):
+        require(isinstance(state[key], dict) and set(state[key]) == set(SLOTS))
+    for slot in SLOTS:
+        require(state['known'][slot] in [None] + [item[0] for item in USER_VALUES[slot]])
+        require(state['statuses'][slot] in ('unknown', 'pending', 'known', 'declined', 'ambiguous', 'skipped'))
+        require(type(state['attempts'][slot]) is int and state['attempts'][slot] >= 0)
+    require(isinstance(state['asked'], list) and all(slot in SLOTS for slot in state['asked']))
+    require(state['pending'] is None or state['pending'] in SLOTS)
+    require(state['topic'] in ('daily_routine', *FOLLOWUP))
+    require(isinstance(state['followup_used'], list) and
+            all(topic in FOLLOWUP for topic in state['followup_used']))
+    require(type(state['wants_exit']) is bool and type(state['user_question_pending']) is bool)
+    require(state['phase'] in ('opening', 'exploration', 'closed'))
+    require(state['last_action'] in (None, 'ASK', 'CLARIFY', 'FOLLOW_UP', 'SWITCH', 'ANSWER', 'ACK', 'CLOSE'))
+    return state
+
+
+def parse_state(text):
+    return validate_state(json.loads(text))
+
+
+def parse_extraction(text):
+    value = json.loads(text)
+    if not isinstance(value, dict) or set(value) != {'observation', 'state'}:
+        raise ValueError('Expected observation and state')
+    validate_state(value['state'])
+    obs = value['observation']
+    if not isinstance(obs, dict) or set(obs) != {'reaction', 'facts', 'new_topic', 'refused', 'user_question', 'exit'}:
+        raise ValueError('Invalid observation schema')
+    if (obs['reaction'] not in REACTIONS or not isinstance(obs['facts'], dict) or
+            obs['refused'] not in (None, *SLOTS) or obs['new_topic'] not in (None, *FOLLOWUP) or
+            type(obs['exit']) is not bool or type(obs['user_question']) is not bool):
+        raise ValueError('Invalid observation value')
+    for slot, fact in obs['facts'].items():
+        if slot not in SLOTS or fact not in [item[0] for item in USER_VALUES[slot]]:
+            raise ValueError('Invalid observed fact')
+    return value
+
+
+@dataclass
+class Request:
+    task: str
+    history: list
+    state: dict | None = None
+    action: dict | None = None
+    # Completed turns followed by the in-progress turn; no reference targets.
+    session: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Prediction:
+    text: str
+    stopped: bool = True
+    tokens: int = 0
+    error: str | None = None
+
+
+class HFPredictor:
+    def __init__(self, model_path, *, device='cpu', local_files_only=False, max_new_tokens=384):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.torch = torch
+        self.path = str(model_path)
+        path = Path(model_path)
+        manifest = path / 'experiment.json'
+        if not manifest.exists() and path.name.startswith('checkpoint-'):
+            manifest = path.parent / 'experiment.json'
+        self.config = json.loads(manifest.read_text(encoding='utf-8')) if manifest.exists() else {}
+        self.task = self.config.get('task')
+        self.style = self.config.get('style', 'plain')
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=local_files_only)
+        self.model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=local_files_only).to(device)
+        self.model.eval()
+        self.device = device
+        self.max_new_tokens = max_new_tokens
+        self.max_length = min(self.config.get('max_length', 1024),
+                              getattr(self.model.config, 'max_position_embeddings', 1024))
+        if self.tokenizer.eos_token_id is None or max_new_tokens <= 0:
+            raise ValueError('Inference requires EOS and a positive generation budget')
+
+    def __call__(self, request):
+        actual_task = request.task
+        if request.task == 'dst' and self.task == 'extraction':
+            actual_task = 'extraction'
+        if self.task not in (None, 'ubar', actual_task):
+            raise ValueError(f'Checkpoint trained for {self.task}, requested {actual_task}')
+        budget = min(self.max_new_tokens, {'policy': 32, 'response': 128, 'history': 128}.get(
+            actual_task, self.max_new_tokens))
+        if self.task == 'ubar':
+            if actual_task not in SEGMENTS:
+                raise ValueError(f'UBAR has no {actual_task} segment')
+            blocks = list(request.session)
+            start, end = SEGMENTS[actual_task]
+            stop_ids = encode(self.tokenizer, end)
+            if len(stop_ids) != 1:
+                raise ValueError('UBAR checkpoint is missing segment tokens')
+            stop_id = stop_ids[0]
+            prompt = ubar_header(self.style) + ''.join(blocks) + start
+            # Keep the previous complete turn and current partial turn at minimum.
+            while len(encode(self.tokenizer, prompt)) + budget > self.max_length and len(blocks) > 2:
+                blocks.pop(0)
+                prompt = ubar_header(self.style) + ''.join(blocks) + start
+        else:
+            history = list(request.history)
+            fmt = get_format(self.style)
+            def render():
+                return fmt.render(task_messages(actual_task, history, request.state, request.action), '')['prompt']
+            prompt = render()
+            while len(encode(self.tokenizer, prompt)) + budget > self.max_length and len(history) > 2:
+                history = history[2:]
+                prompt = render()
+            stop_id = self.tokenizer.eos_token_id
+        ids = encode(self.tokenizer, prompt)
+        if len(ids) + budget > self.max_length:
+            raise ValueError('Context and requested generation budget exceed model context')
+        inputs = self.torch.tensor([ids], device=self.device)
+        with self.torch.inference_mode():
+            output = self.model.generate(input_ids=inputs, attention_mask=self.torch.ones_like(inputs),
+                do_sample=False, max_new_tokens=budget, eos_token_id=stop_id,
+                pad_token_id=self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None
+                else self.tokenizer.eos_token_id)
+        generated = output[0, len(ids):].tolist()
+        stopped = bool(generated and generated[-1] == stop_id)
+        text = self.tokenizer.decode(generated[:-1] if stopped else generated, skip_special_tokens=False)
+        suffix = get_format(self.style).completion_suffix
+        if self.task != 'ubar' and suffix and text.endswith(suffix):
+            text = text[:-len(suffix)]
+        if request.task == 'dst' and actual_task == 'extraction' and stopped:
+            try:
+                text = json.dumps(parse_extraction(text)['state'], ensure_ascii=False)
+            except (ValueError, TypeError, KeyError) as error:
+                # Preserve malformed raw output for the benchmark's error report.
+                return Prediction(text.strip(), stopped, len(generated), f'Invalid extraction: {error}')
+        return Prediction(text.strip(), stopped, len(generated))
+
+
+class PredictorRouter:
+    def __init__(self, default=None, *, dst=None, policy=None, response=None, **kwargs):
+        paths = {'dst': dst or default, 'extraction': dst or default,
+                 'policy': policy or default, 'response': response or default, 'history': default}
+        cache = {}
+        self.models = {}
+        for task, path in paths.items():
+            if path is not None:
+                if path not in cache:
+                    cache[path] = HFPredictor(path, **kwargs)
+                self.models[task] = cache[path]
+        styles = {model.style for model in cache.values() if model.task == 'ubar'}
+        if len(styles) > 1:
+            raise ValueError('UBAR stages must use the same style')
+        self.style = next(iter(styles), 'plain')
+        self.metadata = {task: {'path': model.path, 'experiment': model.config,
+                               'generation': {'decoding': 'greedy', 'device': model.device,
+                                              'max_new_tokens': model.max_new_tokens,
+                                              'policy_cap': 32, 'response_cap': 128,
+                                              'context_limit': model.max_length}}
+                         for task, model in self.models.items()}
+
+    def validate_mode(self, mode):
+        required = {'full': ('dst', 'policy', 'response'), 'rollout': ('dst', 'policy', 'response'),
+                    'policy_response': ('policy', 'response')}.get(mode, (mode,))
+        for task in required:
+            if task not in self.models:
+                raise ValueError(f'No checkpoint configured for {task}')
+            trained = self.models[task].task
+            compatible = trained in (None, task) or (task == 'dst' and trained == 'extraction') or (
+                trained == 'ubar' and task in SEGMENTS)
+            if not compatible:
+                raise ValueError(f'Checkpoint trained for {trained}, requested {task}')
+
+    def __call__(self, request):
+        if request.task not in self.models:
+            raise ValueError(f'No checkpoint configured for {request.task}')
+        return self.models[request.task](request)
