@@ -305,8 +305,14 @@ def validate_episode(ep):
     assert ep['messages']==episode_messages(ep['turns'])
 
 def write_jsonl(path, records):
-    with path.open('w',encoding='utf-8') as f:
+    """Write JSONL and an adjacent, human-readable JSON array."""
+    path = Path(path)
+    records = list(records)
+    with path.open('w',encoding='utf-8',newline='\n') as f:
         for rec in records: f.write(json.dumps(rec,ensure_ascii=False)+'\n')
+    with path.with_suffix('.json').open('w',encoding='utf-8',newline='\n') as f:
+        json.dump(records,f,ensure_ascii=False,indent=2)
+        f.write('\n')
 
 def generate_all(out,counts,seed):
     root=Path(out);root.mkdir(parents=True,exist_ok=True)
