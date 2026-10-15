@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Dialogue-behaviour model training kit" />
+
+    <title>Dialogue-behaviour model training kit</title>
+
+        {% block meta %}
+        {% endblock %}
+
+        {% load static %}
+        <link rel="apple-touch-icon" href="{% static 'app_main/assets/img/apple-touch-icon.png' %}" sizes="180x180">
+        <link rel="icon" href="{% static 'app_main/assets/img/favicon-32x32.png' %}" type="image/png" sizes="32x32">
+        <link rel="icon" href="{% static 'app_main/assets/img/favicon-16x16.png' %}" type="image/png" sizes="16x16">
+
+
+        {% load static %}
+        <!-- color-modes.js removed: always use light theme -->
+
+
+        {% load static %}
+        <!-- Bootstrap CSS -->
+        <link rel="stylesheet" href="{% static 'app_main/assets/vendor/bootstrap/css/bootstrap.min.css' %}">
+        <link rel="stylesheet" href="{% static 'app_main/assets/vendor/bootstrap-icons/bootstrap-icons.css' %}">
+
+        <!-- Slich Slider -->
+        {% load static %}
+        <!-- Icofont -->
+        <link rel="stylesheet" href="{% static 'app_main/assets/vendor/icofont/icofont.min.css' %}">
+        <!-- Font Icons -->
+        <link rel="stylesheet" href="{% static 'app_main/assets/vendor/icons/css/materialdesignicons.min.css' %}">
+        <!-- Material Icons -->
+        <link rel="stylesheet" href="{% static 'app_main/assets/icons/materialicons/materialicons.css' %}">
+        <!-- Fontawesome Icons -->
+        <link rel="stylesheet" href="{% static 'app_main/assets/icons/webfonts/fontawesome.css' %}">
+
+        <link rel="stylesheet" href="{% static 'app_main/css/dashboard.css' %}">
+
+    {% block extra_style %}
+    {% endblock %}
+  </head>
+
+  <body>
+
+    <svg xmlns="http://www.w3.org/2000/svg" class="d-none">
+      <symbol id="list" viewBox="0 0 16 16">
+        <path
+          fill-rule="evenodd"
+          d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"
+        ></path>
+      </symbol>
+      <symbol id="search" viewBox="0 0 16 16">
+        <path
+          d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"
+        ></path>
+      </symbol>
+    </svg>
+    <header class="navbar sticky-top flex-md-nowrap p-0 shadow-sm bg-white" data-bs-theme="light">
+      <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 d-flex justify-content-center align-items-center"
+        href="{% url 'app_main:main' %}"
+      >
+        <img src="/static/app_main/logos/logo-dxc-new.svg" 
+            class="img-fluid" alt="brand-logo" style="height:24px;" title="App-template">
+      </a>
+      <ul class="navbar-nav flex-row d-md-none">
+        <li class="nav-item text-nowrap">
+          <button
+            class="nav-link px-3 text-white"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#navbarSearch"
+            aria-controls="navbarSearch"
+            aria-expanded="false"
+            aria-label="Toggle search"
+          >
+            <svg class="bi" aria-hidden="true">
+              <use xlink:href="#search"></use>
+            </svg>
+          </button>
+        </li>
+        <li class="nav-item text-nowrap">
+          <button
+            class="nav-link px-3 text-white"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#sidebarMenu"
+            aria-controls="sidebarMenu"
+            aria-expanded="false"
+            aria-label="Toggle navigation"
+          >
+            <svg class="bi" aria-hidden="true">
+              <use xlink:href="#list"></use>
+            </svg>
+          </button>
+        </li>
+      </ul>
+      <div id="navbarSearch" class="navbar-search w-100 collapse">
+        <input
+          class="form-control w-100 rounded-0 border-0"
+          type="text"
+          placeholder="Search"
+          aria-label="Search"
+        />
+      </div>
+    </header>
+    <div class="container-fluid">
+      <div class="row">
+        <div class="sidebar border-end col-md-3 col-lg-2 p-0 bg-white">
+          <div
+            class="offcanvas-md offcanvas-end"
+            tabindex="-1"
+            id="sidebarMenu"
+            aria-labelledby="sidebarMenuLabel"
+          >
+            <div class="offcanvas-header shadow-sm">
+              <h5 class="offcanvas-title" id="sidebarMenuLabel">APP-template</h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="offcanvas"
+                data-bs-target="#sidebarMenu"
+                aria-label="Close"
+              ></button>
+            </div>
+
+            <div class="offcanvas-body d-md-flex flex-column p-3 overflow-y-auto">
+
+              {% with u=request.resolver_match.url_name %}
+              <ul class="nav flex-column">
+
+                <li class="nav-item">
+                  <a class="nav-link d-flex align-items-center gap-2 {% if u == 'report' %}active{% endif %}"
+                    href="{% url 'app_main:report' %}">
+                    <span class="material-icons">add_chart</span>
+                    Report
+                  </a>
+                </li>
+              </ul>
+
+              <h6
+                class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-body-secondary text-uppercase"
+              >
+                <span>Saved</span>
+
+              </h6>
+              <ul class="nav flex-column">
+                <li class="nav-item">
+                  <a class="nav-link d-flex align-items-center gap-2" href="#">
+                    <span class="material-icons">article</span>
+                    Last used
+                  </a>
+                </li>
+              </ul>
+              <hr class="my-3" />
+              <ul class="nav flex-column mb-auto">
+                <li class="nav-item">
+                  <a class="nav-link d-flex align-items-center gap-2" href="#">
+                    <span class="material-icons">miscellaneous_services</span>
+                    Settings
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link d-flex align-items-center gap-2" href="#">
+                    <span class="material-icons">logout</span>
+                    Sign out
+                  </a>
+                </li>
+              </ul>
+              {% endwith %}
+            </div>
+          </div>
+        </div>
+        <main class="col-md-9 col-lg-10 ms-sm-auto px-md-4 d-flex flex-column bg-body-tertiary">
+        {% block content %}
+        {% endblock %}
+        </main>
+      </div>
+    </div>
+
+    {% load static %}
+    <script src="{% static 'app_main/assets/js/bootstrap.bundle.min.js' %}" class="astro-vvvwv3sm"></script>
+
+  </body>
+</html>

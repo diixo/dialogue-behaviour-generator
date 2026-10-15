@@ -1,0 +1,336 @@
+/* Fonts */
+@import url('../assets/css/fonts/public-sans/public-sans.css');
+
+
+/* -- Project colour palette ------------------------------------------------ */
+:root {
+  /* -- Primary (blue) ----------------------- */
+  --clr-primary:       #1971c2;
+  --clr-primary-bg:    #e7f5ff;
+  --clr-primary-dark:  #1864ab;
+  --clr-primary-hover: #d0ebff;
+
+  /* -- Text --------------------------------- */
+  --clr-text:          #212529;
+  --clr-text-secondary:#495057;
+  --clr-text-muted:    #6c757d;
+  --clr-text-faint:    #868e96;
+  --clr-text-strong:   #1a1a1a;
+
+  /* -- Surface / borders -------------------- */
+  --clr-border:        #dee2e6;
+  --clr-surface:       #f8f9fa;
+  --clr-surface-mid:   #f1f3f5;
+  --clr-surface-dark:  #e9ecef;
+
+  /* -- Semantic: orange (dynamic/warning) --- */
+  --clr-orange:        #e8590c;
+  --clr-orange-accent: #fd7e14;
+  --clr-orange-bg:     #fff4e6;
+  --clr-amber:         #b27300;
+  --clr-amber-bg:      #fff8e1;
+
+  /* -- Semantic: purple (analysis/decision) - */
+  --clr-purple:        #5f3dc4;
+  --clr-purple-bg:     #f3f0ff;
+
+  /* -- Semantic: green (success/traceability) */
+  --clr-green:         #2b8a3e;
+  --clr-green-bg:      #d3f9d8;
+  --clr-green-bg-light:#ebfbee;
+
+  /* -- Semantic: pink (modes/critical) ------ */
+  --clr-pink:          #a61e4d;
+  --clr-pink-bg:       #fff0f6;
+
+  /* -- Highlight ---------------------------- */
+  --clr-highlight:     #f59f00;
+  --clr-highlight-bg:  #fff3bf;
+
+  --brand-blue: #0091da;
+  --brand-blue-rgb: 0, 145, 218;
+
+  --brand-link: #0052cc;
+  --brand-link-rgb: 0, 82, 204;
+
+  --brand-violet: #683CE8; /* hostinger violet */
+  --brand-violet-rgb: 104, 60, 232;
+}
+
+
+body {
+  font-size: 16px;
+  font-family: 'Public Sans', sans-serif;
+  font-weight: 400;
+}
+
+
+/*
+ * base.html
+ */
+
+.bd-placeholder-img {
+  font-size: 1.125rem;
+  text-anchor: middle;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+@media (min-width: 768px) {
+  .bd-placeholder-img-lg {
+    font-size: 3.5rem;
+  }
+}
+
+.bi {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  vertical-align: -0.125em;
+  fill: #505050;
+  stroke: #505050;
+  stroke-width: 0.5;
+}
+
+.nav-scroller {
+  position: relative;
+  z-index: 2;
+  height: 2.75rem;
+  overflow-y: hidden;
+}
+
+.nav-scroller .nav {
+  display: flex;
+  flex-wrap: nowrap;
+  padding-bottom: 1rem;
+  margin-top: -1px;
+  overflow-x: auto;
+  text-align: center;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+
+.btn-bd-primary {
+  --bd-violet-bg: #712cf9;
+  --bd-violet-rgb: 113, 44, 249;
+  --bs-btn-font-weight: 400;
+  --bs-btn-color: var(--bs-white);
+  --bs-btn-bg: var(--bd-violet-bg);
+  --bs-btn-border-color: var(--bd-violet-bg);
+  --bs-btn-hover-color: var(--bs-white);
+  --bs-btn-hover-bg: #6528e0;
+  --bs-btn-hover-border-color: #6528e0;
+  --bs-btn-focus-shadow-rgb: var(--bd-violet-rgb);
+  --bs-btn-active-color: var(--bs-btn-hover-color);
+  --bs-btn-active-bg: #5a23c8;
+  --bs-btn-active-border-color: #5a23c8;
+}
+
+.btn-blue {
+  --bd-blue-bg: var(--brand-blue);
+  --bd-blue-rgb: var(--brand-blue-rgb);
+  --bs-btn-font-weight: 400;
+  --bs-btn-color: var(--bs-white);
+  --bs-btn-bg: var(--bd-blue-bg);
+  --bs-btn-border-color: var(--bd-blue-bg);
+  --bs-btn-hover-color: var(--bs-white);
+  --bs-btn-hover-bg: #0088d0;
+  --bs-btn-hover-border-color: #0088d0;
+  --bs-btn-focus-shadow-rgb: var(--bd-blue-rgb);
+  --bs-btn-active-color: var(--bs-btn-hover-color);
+  --bs-btn-active-bg: #0078b8;
+  --bs-btn-active-border-color: #0078b8;
+}
+
+.btn-main { /* runpod */
+  --bd-blue-bg: #604CFF;
+  --bd-blue-rgb: 95, 76, 255;
+  --bs-btn-font-weight: 400;
+  --bs-btn-color: var(--bs-white);
+  --bs-btn-bg: var(--bd-blue-bg);
+  --bs-btn-border-color: var(--bd-blue-bg);
+  --bs-btn-hover-color: var(--bs-white);
+  --bs-btn-hover-bg: #4C38F0;
+  --bs-btn-hover-border-color: #4C38F0;
+  --bs-btn-focus-shadow-rgb: var(--bd-blue-rgb);
+  --bs-btn-active-color: var(--bs-btn-hover-color);
+  --bs-btn-active-bg: #4C38F0;
+  --bs-btn-active-border-color: #4C38F0;
+}
+
+.btn-brand-violet {
+  --bd-blue-bg: var(--brand-violet);
+  --bd-blue-rgb: var(--brand-violet-rgb);
+  --bs-btn-font-weight: 400;
+  --bs-btn-color: var(--bs-white);
+  --bs-btn-bg: var(--bd-blue-bg);
+  --bs-btn-border-color: var(--bd-blue-bg);
+  --bs-btn-hover-color: var(--bs-white);
+  --bs-btn-hover-bg: #5a23c8;
+  --bs-btn-hover-border-color: #5a23c8;
+  --bs-btn-focus-shadow-rgb: var(--bd-blue-rgb);
+  --bs-btn-active-color: var(--bs-btn-hover-color);
+  --bs-btn-active-bg: #5a23c8;
+  --bs-btn-active-border-color: #5a23c8;
+}
+
+.text-bg-blue {
+    color: #fff !important;
+    background-color: RGBA(var(--brand-blue-rgb), var(--bs-bg-opacity, 1)) !important;
+}
+
+/*
+ * Main content
+ * Account for the 48px sticky header so the page doesn't get a phantom
+ * ~48px vertical scroll (the old `min-vh-100` made <main> a full 100vh
+ * *below* the header, overflowing the viewport by the header's height).
+ */
+main {
+  min-height: calc(100vh - 48px);
+}
+
+/*
+ * Sidebar
+ */
+
+@media (min-width: 768px) {
+  .sidebar .offcanvas-md {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 48px;
+    height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+
+  .sidebar .offcanvas-body {
+    height: 100%;
+  }
+
+  /* Must match the specificity of Bootstrap's `.collapse:not(.show){display:none}`
+     (0,2,0) so the search field is shown on desktop; loaded after Bootstrap it
+     then wins by source order. A plain `.navbar-search` (0,1,0) loses to it. */
+  .navbar-search.collapse {
+    display: block;
+  }
+}
+
+/*
+ * Sidebar nav items — active indicator adapted from preview.html.
+ * The active item gets a subtle background, bold text and a vertical
+ * indicator bar that protrudes to the left of the item.
+ */
+.sidebar {
+  --nav-item-radius: 6px;
+  --nav-item-hover-bg: #f4f4f4;
+  --nav-item-active-bg: rgba(13, 110, 253, 0.1); /* bg-primary bg-opacity-10 */
+  --nav-item-active-color: var(--brand-blue);
+
+  --nav-indicator-width: 4px;
+  --nav-indicator-height: 24px;
+  --nav-indicator-offset: 8px;
+  --nav-indicator-radius: 6px;
+  --nav-indicator-color: var(--brand-blue);
+
+  /* Иконки пунктов остаются приглушённо-серыми независимо от состояния
+     (active / hover), как в sidebar-github-menu-icon.html.
+     --bs-secondary — серый токен Bootstrap (#6c757d), подхватывает тему. */
+  --nav-icon-color: #707070; /* var(--bs-secondary) */
+}
+
+.sidebar .nav-link {
+  position: relative;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(33, 37, 41, 0.75);
+  border-radius: var(--nav-item-radius);
+  transition:
+    color 80ms linear,
+    background-color 80ms linear;
+}
+
+.sidebar .nav-link:hover {
+  /* color: var(--brand-blue); */
+  background-color: var(--nav-item-hover-bg);
+}
+
+.sidebar .nav-link.active {
+  background-color: var(--nav-item-active-bg);
+  color: rgb(37, 41, 46);
+  font-weight: 600;
+}
+
+/*
+  Цвет иконки задаётся явно на самом элементе, поэтому он НЕ наследует
+  цвет текста пункта и остаётся одинаковым для обычного, hover и active
+  состояний. Меняется только фон, жирность текста и левый индикатор.
+*/
+.sidebar .nav-link .material-icons {
+  color: var(--nav-icon-color);
+}
+
+/*
+  Активная боковая плашка-индикатор:
+  - вынесена влево за границу item на --nav-indicator-offset;
+  - ширина 4px, высота 24px;
+  - центрирована по вертикали, полностью скруглена;
+  - не участвует в layout.
+*/
+.sidebar .nav-link.active::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--nav-indicator-offset));
+  width: var(--nav-indicator-width);
+  height: var(--nav-indicator-height);
+  background-color: var(--nav-indicator-color);
+  border-radius: var(--nav-indicator-radius);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+
+.sidebar-heading {
+  font-size: .75rem;
+}
+
+/* Sidebar-only scrollbar styling */
+.sidebar .offcanvas-md {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(108, 117, 125, .55) transparent;
+}
+
+
+/*
+ * Navbar
+ */
+
+.navbar-brand {
+  padding-top: .75rem;
+  padding-bottom: .75rem;
+  background-color: rgb(255, 255, 255);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, .25);
+}
+
+.navbar .form-control {
+  padding: .75rem 1rem;
+}
+
+.navbar-search .form-control {
+  background-color: rgba(255, 255, 255, .1);
+  border-color: rgba(255, 255, 255, .1);
+}
+
+.navbar-search .form-control:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .25);
+}
+
+.fs-12 {
+    font-size: 12px;
+}
+
+.fs-14 {
+    font-size: 14px;
+}
+

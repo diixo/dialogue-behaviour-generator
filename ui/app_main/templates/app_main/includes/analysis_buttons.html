@@ -1,0 +1,16 @@
+<div class="d-flex gap-2 mb-4 justify-content-center">
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="detect_gaps">
+    <button type="submit" class="btn {% if analysis_action == 'detect_gaps' %}btn-danger{% else %}btn-outline-danger{% endif %}">
+      <i class="bi bi-search me-1"></i>Detect Gaps
+    </button>
+  </form>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="validate">
+    <button type="submit" class="btn {% if analysis_action == 'validate' %}btn-info{% else %}btn-outline-info{% endif %}">
+      <i class="bi bi-check2-all me-1"></i>Validate Dataset
+    </button>
+  </form>
+</div>

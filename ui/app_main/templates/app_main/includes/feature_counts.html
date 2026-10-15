@@ -1,0 +1,32 @@
+{% if feature_counts %}
+<div class="d-flex flex-wrap justify-content-center gap-2 mb-4">
+  <div class="bg-light rounded px-3 py-2 text-center" style="min-width:100px;">
+    <div class="fs-5 fw-bold text-primary">{{ feature_counts.features }}</div>
+    <div class="small text-muted">Features</div>
+  </div>
+  <div class="bg-light rounded px-3 py-2 text-center" style="min-width:100px;">
+    <div class="fs-5 fw-bold text-dark">{{ feature_counts.inspection_rules }}</div>
+    <div class="small text-muted">Inspection Rules</div>
+  </div>
+  <div class="bg-light rounded px-3 py-2 text-center" style="min-width:100px;">
+    <div class="fs-5 fw-bold text-secondary">{{ feature_counts.input_evidence }}</div>
+    <div class="small text-muted">Evidence</div>
+  </div>
+  <div class="bg-light rounded px-3 py-2 text-center" style="min-width:100px;">
+    <div class="fs-5 fw-bold text-success">{{ feature_counts.input_requirements }}</div>
+    <div class="small text-muted">Requirements</div>
+  </div>
+  <div class="bg-light rounded px-3 py-2 text-center" style="min-width:100px;">
+    <div class="fs-5 fw-bold text-info">{{ feature_counts.input_trace_links }}</div>
+    <div class="small text-muted">Trace Links</div>
+  </div>
+  <div class="bg-light rounded px-3 py-2 text-center" style="min-width:100px;">
+    <div class="fs-5 fw-bold text-warning">{{ feature_counts.input_test_cases }}</div>
+    <div class="small text-muted">Test Cases</div>
+  </div>
+  <div class="bg-light rounded px-3 py-2 text-center" style="min-width:100px;">
+    <div class="fs-5 fw-bold text-danger">{{ feature_counts.expected_findings }}</div>
+    <div class="small text-muted">Findings</div>
+  </div>
+</div>
+{% endif %}

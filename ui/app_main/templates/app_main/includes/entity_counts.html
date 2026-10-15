@@ -1,0 +1,92 @@
+{% if entity_counts %}
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-primary">{{ entity_counts.scenarios }}</div>
+        <div class="small text-muted">Scenarios</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-dark">{{ entity_counts.artifacts }}</div>
+        <div class="small text-muted">Artifacts</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-success">{{ entity_counts.stakeholder_requirements }}</div>
+        <div class="small text-muted">Stakeholder Req</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-primary">{{ entity_counts.system_requirements }}</div>
+        <div class="small text-muted">System Req</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-info">{{ entity_counts.software_requirements }}</div>
+        <div class="small text-muted">Software Req</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-warning">{{ entity_counts.test_cases }}</div>
+        <div class="small text-muted">Test Cases</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-secondary">{{ entity_counts.trace_links }}</div>
+        <div class="small text-muted">Trace Links</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-dark">{{ entity_counts.base_practices }}</div>
+        <div class="small text-muted">Base Practices</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-dark">{{ entity_counts.information_items }}</div>
+        <div class="small text-muted">Info Items</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-dark">{{ entity_counts.assessment_indicators }}</div>
+        <div class="small text-muted">Indicators</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center border-0 bg-light">
+      <div class="card-body py-2 px-1">
+        <div class="fs-4 fw-bold text-danger">{{ entity_counts.expected_gap_checks }}</div>
+        <div class="small text-muted">Gap Checks</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
