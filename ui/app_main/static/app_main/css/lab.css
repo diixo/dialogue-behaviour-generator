@@ -1,13 +1,25 @@
 body { background: #f6f8fb; color: #253047; }
 .job-progress { width: 100%; height: 12px; accent-color: #1971c2; }
 .job-log { max-height: 440px; border: 0; border-radius: 0; font-size: .76rem; }
+.chat-transcript { max-height: 65vh; overflow-y: auto; }
+.chat-turn-details { padding: 0 14px; }
 a { text-decoration: none; }
 a:hover { text-decoration: underline; }
 .sidebar .nav-link:hover { text-decoration: none; }
 main { min-width: 0; min-height: calc(100vh - 57px); }
 .navbar { min-height: 57px; }
 .navbar-brand { box-shadow: none; }
-.lab-mark { display: inline-grid; place-items: center; width: 29px; height: 29px; border-radius: 8px; color: #fff; background: #1971c2; font-weight: 700; }
+.navbar-brand:hover { text-decoration: none; }
+.lab-mark {
+    display: inline-grid;
+    place-items: center;
+    width: 29px;
+    height: 29px;
+    border-radius: 8px;
+    color: #fff;
+    background: #1971c2;
+    font-weight: 700;
+}
 .page-heading { padding: 30px 0 20px; }
 .page-heading h1 { overflow-wrap: anywhere; font-weight: 650; }
 .eyebrow { font-size: .65rem; font-weight: 650; letter-spacing: .14em; color: #748094; margin-bottom: 8px; }
@@ -35,7 +47,20 @@ main { min-width: 0; min-height: calc(100vh - 57px); }
 .filter-bar .filter-search { flex: 2 1 180px; }
 .filter-bar label > input, .filter-bar label > select { margin-top: 5px; }
 .preview-text { max-width: 450px; }
-pre { font-size: .76rem; line-height: 1.65; background: #f6f8fb; border: 1px solid #e8edf4; border-radius: 6px; padding: 14px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 520px; overflow: auto; margin-bottom: 0; color: #35455f; }
+pre {
+    font-size: .76rem;
+    line-height: 1.65;
+    background: #f6f8fb;
+    border: 1px solid #e8edf4;
+    border-radius: 6px;
+    padding: 14px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 520px;
+    overflow: auto;
+    margin-bottom: 0;
+    color: #35455f;
+}
 code { color: #466182; }
 summary { cursor: pointer; font-size: .86rem; }
 summary:hover { color: #1971c2; }
