@@ -15,7 +15,7 @@ from dialogue_format import get_format
 SLOTS = ('time_of_day', 'activity', 'mood')
 VIEWS = ('policy', 'response', 'history', 'extraction')
 SLOT_VALUES = {
-    'time_of_day': ('morning', 'afternoon', 'evening'),
+    'time_of_day': ('morning', 'afternoon', 'evening', 'night'),
     'activity': ('reading', 'working', 'listening_to_music', 'relaxing'),
     'mood': ('calm', 'happy', 'tired'),
 }
@@ -58,12 +58,16 @@ class State:
         return cls(**values)
 
     def snapshot(self):
-        return {'known': dict(self.known), 'statuses': dict(self.statuses),
-                'asked': list(self.asked), 'pending': self.pending,
-                'attempts': dict(self.attempts), 'topic':self.topic,
+        return {'known': dict(self.known),
+                'statuses': dict(self.statuses),
+                'asked': list(self.asked),
+                'pending': self.pending,
+                'attempts': dict(self.attempts),
+                'topic':self.topic,
                 'followup_used': sorted(self.followup_used),
                 'user_question_pending': self.user_question_pending,
-                'wants_exit': self.wants_exit, 'phase': self.phase,
+                'wants_exit': self.wants_exit,
+                'phase': self.phase,
                 'last_action': self.last_action}
 
 

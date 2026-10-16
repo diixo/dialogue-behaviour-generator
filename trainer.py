@@ -68,10 +68,19 @@ def print_dataset_summary(manifest, splits):
 
 
 def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, task, output,
-                     model_name='provided-model', style='plain', max_length=1024,
-                     loss_scope='targets', epochs=2, batch_size=4,
-                     accumulation=1, learning_rate=8e-5, warmup_ratio=0.05, seed=42,
-                     use_cpu=False, resume=None, job_control=None):
+                     model_name='provided-model',
+                     style='plain',
+                     max_length=1024,
+                     loss_scope='targets',
+                     epochs=2,
+                     batch_size=4,
+                     accumulation=1,
+                     learning_rate=8e-5,
+                     warmup_ratio=0.05,
+                     seed=42,
+                     use_cpu=False,
+                     resume=None,
+                     job_control=None):
     from transformers import Trainer, TrainingArguments, set_seed
 
     set_seed(seed)
@@ -192,8 +201,12 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
     result = trainer.train(resume_from_checkpoint=resume)
     if job_control is not None and job_control.stopped:
         from job_runtime import atomic_json
-        result = {'stopped': True, 'global_step': trainer.state.global_step,
-                  'epoch': trainer.state.epoch, 'checkpoint': job_control.progress.get('checkpoint')}
+        result = {
+                    'stopped': True,
+                    'global_step': trainer.state.global_step,
+                    'epoch': trainer.state.epoch,
+                    'checkpoint': job_control.progress.get('checkpoint')
+                }
         atomic_json(output / 'interrupted.json', result)
         return result
     metrics = {

@@ -19,7 +19,8 @@ USER_VALUES = {
     'time_of_day': [
         ('morning', ['It is morning here.', 'It is still morning.']),
         ('afternoon', ['It is afternoon.', 'It is the afternoon here.']),
-        ('evening', ['It is evening.', 'It is evening here.'])
+        ('evening', ['It is evening.', 'It is evening here.']),
+        ('night', ['It is night here.', 'It is nighttime.'])
         ],
     'activity': [
         ('reading', ['I am reading a book.', 'I am reading.']),
@@ -35,7 +36,7 @@ USER_VALUES = {
 }
 TOPICS = {'reading':'books', 'working':'work', 'listening_to_music':'music', 'relaxing':'relaxing'}
 ASK_TEXT = {
-    'time_of_day': ['What time of day is it for you?', 'Is it morning, afternoon, or evening there?'],
+    'time_of_day': ['What time of day is it for you?', 'Is it morning, afternoon, evening, or night there?'],
     'activity': ['What are you doing right now?', 'What are you up to?'],
     'mood': ['How are you feeling?', 'What kind of mood are you in?'],
 }
@@ -219,29 +220,40 @@ def generate_episode(rng, eid, split, max_turns=16):
         state_before=state.snapshot()
         assistant=realizer.realize(action,state,rng)
         commit_action(state,action)
-        turns.append({'index':i, 'state_before_user':before_user,
-                      'state_before':state_before, 'action':action.json(),
-                      'assistant':assistant, 'user':user, 'observation':observation,
-                      'state_after':state.snapshot()})
+        turns.append({'index': i,
+                      'state_before_user': before_user,
+                      'state_before': state_before,
+                      'action': action.json(),
+                      'assistant': assistant,
+                      'user': user,
+                      'observation': observation,
+                      'state_after': state.snapshot()})
         if action.type=='CLOSE':
             break
         user, observation = sim.response(action, state)
-    return {'schema_version':2, 'dialogue_start':'user',
-            'episode_id':eid,'split':split,'persona':'friendly_curious',
-            'scenario':'daily_smalltalk','hidden_user':hidden,'turns':turns,
-            'messages':episode_messages(turns),
-            'terminal_reason':turns[-1]['action']['reason']}
+    return {'schema_version': 2,
+            'dialogue_start': 'user',
+            'episode_id': eid,
+            'split': split,
+            'persona': 'friendly_curious',
+            'scenario': 'daily_smalltalk',
+            'hidden_user': hidden,
+            'turns': turns,
+            'messages': episode_messages(turns),
+            'terminal_reason': turns[-1]['action']['reason']}
 
 def compile_views(ep):
     policy=[]; response=[]; history_only=[]; extraction=[]
     history=[]
     for turn in ep['turns']:
-        extraction.append({'episode_id':ep['episode_id'], 'turn':turn['index'],
-                           'next_turn':turn['index'],
-                           'history_before':list(history), 'utterance':turn['user'],
-                           'state_before':deepcopy(turn['state_before_user']),
-                           'target_observation':deepcopy(turn['observation']),
-                           'target_state':deepcopy(turn['state_before'])})
+        extraction.append({'episode_id': ep['episode_id'],
+                           'turn': turn['index'],
+                           'next_turn': turn['index'],
+                           'history_before': list(history),
+                           'utterance': turn['user'],
+                           'state_before': deepcopy(turn['state_before_user']),
+                           'target_observation': deepcopy(turn['observation']),
+                           'target_state': deepcopy(turn['state_before'])})
         history.append({'role':'user', 'content':turn['user']})
         a=turn['action']
         common={'episode_id':ep['episode_id'],'turn':turn['index'],'persona':ep['persona'],
