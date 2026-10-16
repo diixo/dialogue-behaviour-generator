@@ -1,0 +1,20 @@
+{% extends 'app_main/base.html' %}
+{% block content %}
+<div class="panel mb-4">{% include 'app_main/includes/splits.html' %}</div>
+<form method="get" class="panel filter-bar mb-3">
+  <label>Split<select class="form-select form-select-sm" name="split">{% for name in split_choices %}<option value="{{ name }}" {% if name == split %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+  <label class="filter-search">Episode ID<input class="form-control form-control-sm" name="q" value="{{ q }}" placeholder="Например, train_000042"></label>
+  <label>Реакция<select class="form-select form-select-sm" name="reaction"><option value="">Все</option>{% for name, count in distribution.reactions %}<option {% if name == reaction %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+  <label>Действие<select class="form-select form-select-sm" name="action"><option value="">Все</option>{% for name, count in distribution.actions %}<option {% if name == action %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+  <label>Цель<select class="form-select form-select-sm" name="target"><option value="">Все</option>{% for name, count in distribution.targets %}<option {% if name == target %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+  <label>Завершение<select class="form-select form-select-sm" name="terminal"><option value="">Все</option>{% for name in terminals %}<option {% if name == terminal %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+  <button class="btn btn-sm btn-primary" type="submit">Применить</button><a class="btn btn-sm btn-light" href="?split={{ split }}">Сбросить</a>
+</form>
+<div class="panel"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
+  <thead><tr><th>Эпизод</th><th>Начало диалога</th><th>Ходы</th><th>Завершение</th></tr></thead>
+  <tbody>{% for row in items %}<tr><td><a class="fw-semibold" href="{% url 'app_main:episode' split row.episode_id %}">{{ row.episode_id }}</a><small class="d-block text-secondary">{{ row.scenario }}</small></td><td class="preview-text">{{ row.preview }}</td><td>{{ row.turns }}</td><td><code>{{ row.terminal }}</code></td></tr>{% empty %}<tr><td colspan="4" class="empty-state">Эпизодов по этим условиям нет. Попробуйте сбросить фильтры.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+{% include 'app_main/includes/pagination.html' %}
+<details class="panel mt-4 p-3"><summary>Распределение по ходам · {{ split }}</summary><div class="row g-4 mt-1">{% for category, values in distribution.items %}<div class="col-lg-4"><h2 class="h6">{{ category }}</h2>{% for name, count in values %}<div class="d-flex justify-content-between small py-1"><code>{{ name }}</code><span>{{ count }}</span></div>{% endfor %}</div>{% endfor %}</div></details>
+<p class="small text-secondary mt-3">Источник: <code>{{ dataset_path }}</code>. Фильтры находят эпизоды, содержащие выбранные реакции и действия.</p>
+{% endblock %}

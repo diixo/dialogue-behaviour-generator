@@ -3,3 +3,5 @@
 torch
 transformers>=4.56,<5
 accelerate>=1.0
+# Local dataset and experiment dashboard:
+Django>=5.2,<5.3

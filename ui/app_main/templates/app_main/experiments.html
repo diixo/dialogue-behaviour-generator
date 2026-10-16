@@ -1,0 +1,10 @@
+{% extends 'app_main/base.html' %}
+{% block content %}
+<p class="text-secondary">Сохранённые конфигурации, checkpoints и метрики обучения.</p>
+<form method="get" class="d-flex gap-2 mb-3 align-items-end"><label class="small">Задача<select class="form-select form-select-sm mt-1" name="task"><option value="">Все задачи</option>{% for name in tasks %}<option {% if task == name %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label><button class="btn btn-sm btn-outline-primary">Применить</button></form>
+<div class="panel"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Эксперимент</th><th>Задача</th><th>Модель</th><th>Эпохи</th><th>Batch / accumulation</th><th>Learning rate</th></tr></thead><tbody>
+{% for run in items %}<tr><td><a href="{% url 'app_main:experiment' run.id %}">{{ run.name }}</a></td><td><span class="badge text-bg-light">{{ run.config.task }}</span></td><td>{{ run.config.base_model }}</td><td>{{ run.config.epochs }}</td><td>{{ run.config.batch_size }} / {{ run.config.gradient_accumulation_steps }}</td><td>{{ run.config.learning_rate }}</td></tr>{% empty %}<tr><td colspan="6" class="empty-state">Экспериментов по этим условиям пока нет.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% include 'app_main/includes/pagination.html' %}
+<section class="panel p-4 mt-4"><h2 class="h6">Запуск из терминала</h2><p class="small text-secondary">Обучение пока запускается через CLI. После сохранения experiment.json обновите эту страницу.</p><pre>python trainer.py --task ubar --model gpt2 --epochs 2 --output runs/ubar</pre><p class="small text-secondary mt-3 mb-0">Каталоги результатов: {% for root in roots %}<code>{{ root }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}.</p></section>
+{% endblock %}

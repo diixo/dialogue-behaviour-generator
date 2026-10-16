@@ -1,0 +1,9 @@
+{% extends 'app_main/base.html' %}
+{% block content %}
+<a class="small" href="{% url 'app_main:reports' %}">← Все бенчмарки</a>
+{% if selection_error %}<div class="panel p-4 mt-3">{{ selection_error }}</div>{% else %}
+{% if comparison_issues %}<div class="alert alert-warning mt-3"><strong>Прямое сравнение не подтверждено</strong><ul class="mb-0 mt-2 small">{% for issue in comparison_issues %}<li>{{ issue }}</li>{% endfor %}</ul></div>{% else %}<div class="alert alert-success small mt-3">Датасет, протокол и записанные параметры генерации совпадают.</div>{% endif %}
+<div class="panel mt-3"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Метрика</th>{% for run in runs %}<th><a href="{% url 'app_main:report_detail' run.id %}">{{ run.name }}</a><div class="text-secondary mt-1">{{ run.config.mode }} · {{ run.config.splits|join:', ' }}</div></th>{% endfor %}</tr></thead><tbody>{% for row in rows %}<tr><td><code>{{ row.name }}</code><small class="d-block text-secondary">{% if row.violation %}↓ меньше нарушений{% else %}↑ больше совпадений / покрытия{% endif %}</small></td>{% for cell in row.cells %}<td class="metric-value">{% if cell %}<strong>{{ cell.percent|floatformat:1 }}%</strong><small class="d-block text-secondary">{{ cell.numerator }} / {{ cell.denominator }}</small>{% else %}—{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></div>
+<p class="small text-secondary mt-3">Учитывайте знаменатели и корректность формата. Одинаковые условия оценки не означают одинаковый бюджет обучения. Шаблонные метрики ответа не заменяют ручную оценку смысла.</p>
+{% endif %}
+{% endblock %}

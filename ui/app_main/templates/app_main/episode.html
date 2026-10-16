@@ -1,0 +1,25 @@
+{% extends 'app_main/base.html' %}
+{% block content %}
+<div class="d-flex flex-wrap gap-3 mb-4 small"><a href="{% url 'app_main:datasets' %}?split={{ split }}">← {{ split }}</a><span>{{ episode.turns|length }} ходов</span><span>{{ episode.terminal_reason }}</span><code title="{{ corpus_hash }}">{{ corpus_hash|slice:':12' }}</code></div>
+<div class="row g-4">
+<section class="col-xl-5"><div class="panel"><div class="panel-heading"><h2 class="h6 mb-0">Диалог</h2><span class="small text-secondary">Выберите ход</span></div><div class="dialogue-list">
+{% for item in episode.turns %}<a class="dialogue-turn {% if item.index == selected %}selected{% endif %}" {% if item.index == selected %}aria-current="true"{% endif %} href="?turn={{ item.index }}">
+  <div class="turn-label">Ход {{ item.index }} <span>{{ item.action.type }}{% if item.action.target %} · {{ item.action.target }}{% endif %}</span></div>
+  <div class="bubble assistant"><small>ASSISTANT</small>{{ item.assistant }}</div>
+  {% if item.user != None %}<div class="bubble user"><small>USER</small>{{ item.user }}</div>{% endif %}
+</a>{% endfor %}</div></div></section>
+<section class="col-xl-7"><div class="panel mb-3"><div class="panel-heading"><h2 class="h6 mb-0">Ход {{ selected }}</h2><span class="badge text-bg-light">{{ action }}</span></div>
+  <div class="p-3"><h3 class="h6">{% if extraction %}Изменения после ответа пользователя{% else %}Изменения после действия ассистента{% endif %}</h3>
+  {% include 'app_main/includes/differences.html' %}
+  <details class="mt-3"><summary>Полное состояние до и после</summary><div class="row g-2 mt-1"><div class="col-lg-6"><pre>{{ before_json }}</pre></div><div class="col-lg-6"><pre>{{ after_json }}</pre></div></div></details>
+  {% if extraction %}<details class="mt-2"><summary>Observation · {{ turn.observation.reaction }}</summary><pre class="mt-2">{{ observation_json }}</pre></details>{% endif %}
+  </div></div>
+  <div class="panel"><div class="panel-heading"><h2 class="h6 mb-0">Связанные обучающие примеры</h2></div><div class="p-3">
+  {% if extraction %}<div class="chain-strip"><span>extraction [{{ selected }}]</span><span aria-hidden="true">→</span><a href="?turn={{ next_turn }}">policy / response / history [{{ next_turn }}]</a></div>{% else %}<p class="small text-secondary">Терминальный ход: ответа пользователя и следующего extraction нет. Ниже — задачи этого хода.</p>{% endif %}
+  <p class="small text-secondary mt-3">Примеры построены тем же компилятором, что и SFT, из канонического эпизода. Показаны структурированные сообщения до форматирования и токенизации.</p>
+  {% for example in examples %}<details class="example-panel" {% if forloop.first %}open{% endif %}><summary><strong>{{ example.view }}</strong><span class="text-secondary ms-2 small">ход {{ example.turn }}</span></summary><div class="mt-3"><h3 class="h6">Ожидаемый ответ</h3><pre class="completion">{{ example.completion_display }}</pre><details><summary class="small">Вход модели · {{ example.messages|length }} сообщений</summary><pre class="mt-2">{{ example.messages_json }}</pre></details></div></details>{% endfor %}
+  </div></div>
+</section>
+</div>
+<details class="mt-4 small text-secondary"><summary>Данные симулятора — не входят во вход модели</summary><pre class="mt-2">{{ simulator_json }}</pre></details>
+{% endblock %}

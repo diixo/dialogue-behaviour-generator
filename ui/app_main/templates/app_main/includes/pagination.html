@@ -1,0 +1,4 @@
+<nav class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 small" aria-label="Страницы результатов">
+  <span class="text-secondary">{{ items.paginator.count }} записей · страница {{ items.number }} из {{ items.paginator.num_pages }}</span>
+  <div class="d-flex gap-2">{% if items.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?{{ page_query }}&amp;page={{ items.previous_page_number }}">← Назад</a>{% endif %}{% if items.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?{{ page_query }}&amp;page={{ items.next_page_number }}">Далее →</a>{% endif %}</div>
+</nav>

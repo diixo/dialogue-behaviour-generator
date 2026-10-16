@@ -1,16 +1,22 @@
-
-{% extends "app_main/base.html" %}
-
-{% block meta %}
-<title>Title</title>
-<meta property="og:title" content="Title">
-<meta name="description" content="Description">
-<meta property="og:description" content="Description">
-{% endblock %}
-
+{% extends 'app_main/base.html' %}
 {% block content %}
-
-<h3 class="fw-bold mt-5 text-center">Dialogue-behaviour model training kit</h3>
-<p class="text-muted mb-2 text-center">Dialogue-behaviour model training kit</p>
-
+<p class="text-secondary mb-4">Исследуйте данные, просматривайте результаты обучения и проверяйте поведение модели.</p>
+<div class="stats-grid mb-4">
+  <div class="panel stat"><span>Эпизоды</span><strong>{{ episode_count }}</strong><small>во всех разбиениях</small></div>
+  <div class="panel stat"><span>Ходы ассистента</span><strong>{{ turn_count }}</strong><small>канонический датасет</small></div>
+  <div class="panel stat"><span>Обучения</span><strong>{{ experiment_count }}</strong><small>сохранённые конфигурации</small></div>
+  <div class="panel stat"><span>Бенчмарки</span><strong>{{ report_count }}</strong><small>сохранённые отчёты</small></div>
+</div>
+<section class="panel mb-4">
+  <div class="panel-heading"><h2 class="h6 mb-0">Датасет</h2><a href="{% url 'app_main:datasets' %}">Открыть данные <span aria-hidden="true">→</span></a></div>
+  {% include 'app_main/includes/splits.html' %}
+</section>
+<div class="row g-4">
+  <section class="col-xl-6"><div class="panel h-100"><div class="panel-heading"><h2 class="h6 mb-0">Последние обучения</h2><a href="{% url 'app_main:experiments' %}">Все</a></div>
+    {% for run in experiments %}<a class="artifact-row" href="{% url 'app_main:experiment' run.id %}"><span><strong>{{ run.name }}</strong><small>{{ run.config.base_model }} · {{ run.config.epochs }} эпох</small></span><span class="badge text-bg-light">{{ run.config.task }}</span></a>{% empty %}<div class="empty-state"><i class="bi bi-cpu" aria-hidden="true"></i><h3 class="h6">Обучений пока нет</h3><p>Сохранённые эксперименты из outputs и runs появятся здесь автоматически.</p><a href="{% url 'app_main:experiments' %}">Как запустить обучение</a></div>{% endfor %}
+  </div></section>
+  <section class="col-xl-6"><div class="panel h-100"><div class="panel-heading"><h2 class="h6 mb-0">Последние оценки</h2><a href="{% url 'app_main:reports' %}">Все</a></div>
+    {% for run in reports %}<a class="artifact-row" href="{% url 'app_main:report_detail' run.id %}"><span><strong>{{ run.name }}</strong><small>{{ run.config.episodes }} эпизодов · {{ run.config.splits|join:', ' }}</small></span><span class="badge text-bg-light">{{ run.config.mode }}</span></a>{% empty %}<div class="empty-state"><i class="bi bi-bar-chart" aria-hidden="true"></i><h3 class="h6">Нет результатов оценки</h3><p>После бенчмарка здесь появятся метрики и примеры предсказаний.</p><a href="{% url 'app_main:reports' %}">Открыть бенчмарки</a></div>{% endfor %}
+  </div></section>
+</div>
 {% endblock %}

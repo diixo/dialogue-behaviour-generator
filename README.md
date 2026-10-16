@@ -10,6 +10,10 @@ for train/validation/test. All training modes default to pretrained `gpt2`; no t
 py ui/manage.py runserver
 ```
 
+The UI browses episodes, linked SFT examples, training artifacts and benchmark errors.
+It reads `data/`, `outputs/` and `runs/`; paths are configured in `ui/ui/settings.py`.
+Training and evaluation are currently launched through the CLI.
+
 
 ## Data
 

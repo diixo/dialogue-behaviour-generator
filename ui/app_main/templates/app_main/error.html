@@ -1,0 +1,2 @@
+{% extends 'app_main/base.html' %}
+{% block content %}<div class="panel p-4"><p>Проверьте файл и обновите страницу.</p><pre>{{ error }}</pre><a class="btn btn-outline-primary" href="{% url 'app_main:main' %}">К обзору</a></div>{% endblock %}
