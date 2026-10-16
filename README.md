@@ -16,6 +16,7 @@ Start the job worker in a second terminal: `py ui/manage.py runworker`.
 The UI browses episodes, linked SFT examples, training artifacts and benchmark errors.
 It reads `data/`, `outputs/` and `runs/`; paths are configured in `ui/ui/settings.py`.
 The UI queues training/evaluation, shows live progress and supports checkpoint stop/resume.
+Chat with a trained UBAR model through the same worker and inspect each turn's state and action.
 
 
 ## Data

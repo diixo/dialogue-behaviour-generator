@@ -23,7 +23,7 @@ def pretty(value):
 def page(request, template, title, section, **context):
     navigation = [('main', 'Обзор', 'dashboard'), ('datasets', 'Данные', 'storage'),
                   ('experiments', 'Обучение', 'model_training'), ('reports', 'Бенчмарки', 'add_chart'),
-                  ('jobs', 'Очередь', 'playlist_play')]
+                  ('jobs', 'Очередь', 'playlist_play'), ('chats', 'Чат', 'reviews')]
     return render(request, f'app_main/{template}.html', {
         'title': title, 'section': section, 'navigation': navigation, **context,
     })

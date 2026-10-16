@@ -57,15 +57,15 @@ def data_config(splits):
     return {'data': str(Path(settings.DIALOGUE_DATA_DIR).resolve()), 'data_hashes': hashes}
 
 
-def enqueue(kind, name, config, output=None, identifier=None):
+def enqueue(kind, name, config, output=None, identifier=None, chat_session=None):
     job = Job(id=identifier or uuid.uuid4(), kind=kind, name=name, config=config)
     job.output = str(Path(output).resolve() if output else
                      Path(settings.DIALOGUE_OUTPUT_DIR).resolve() / f'{kind}-{job.pk}')
     with transaction.atomic():
         job, created = Job.objects.get_or_create(pk=job.pk, defaults={
-            'kind': kind, 'name': name, 'config': config, 'output': job.output})
+            'kind': kind, 'name': name, 'config': config, 'output': job.output, 'chat_session': chat_session})
         if not created:
-            if job.config != config or job.kind != kind:
+            if job.config != config or job.kind != kind or job.chat_session_id != getattr(chat_session, 'pk', None):
                 raise ValueError('Эта форма уже отправлена с другими параметрами. Откройте новую форму.')
             return job
         if Job.objects.filter(output=job.output, status__in=ACTIVE).exclude(pk=job.pk).exists():

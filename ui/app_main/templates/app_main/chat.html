@@ -1,0 +1,46 @@
+{% extends 'app_main/base.html' %}
+{% load static %}
+{% block content %}
+<div id="chat-monitor" data-status-url="{% url 'app_main:chat_status' chat.pk %}" data-active="{% if active_job %}true{% else %}false{% endif %}">
+  <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+    <a href="{% url 'app_main:chats' %}">← Все диалоги</a>
+    <a class="btn btn-outline-primary btn-sm ms-auto" href="{% url 'app_main:chats' %}?model={{ model_id }}">Новый диалог</a>
+  </div>
+  <div class="small text-secondary mb-3">{{ chat.config.model_label }} · {{ chat.config.device }} · лимит генерации {{ chat.config.max_new_tokens }}</div>
+  <div id="chat-worker-warning" class="alert alert-info small" {% if worker_online %}hidden{% endif %}>Для ответа нужен worker: <code>py ui/manage.py runworker</code>. Если выполняется другая задача, чат дождётся своей очереди.</div>
+  <div id="chat-poll-warning" class="alert alert-warning small" hidden>Не удалось обновить состояние. Повторяем подключение…</div>
+  <section class="panel p-3 p-md-4 mb-3 chat-transcript" id="chat-transcript" aria-label="Переписка">
+    {% for job in turns %}
+      {% if job.config.message %}<div class="bubble user mb-3"><small>ВЫ</small>{{ job.config.message }}</div>{% endif %}
+      {% if job.status == 'completed' %}
+        <div class="bubble assistant"><small>МОДЕЛЬ</small>{{ job.result.response }}</div>
+        <details class="chat-turn-details mb-4 mt-2">
+          <summary>Состояние и действие</summary>
+          <div class="row g-3 mt-1">
+            <div class="col-xl-6"><div class="small text-secondary mb-2">B · состояние перед действием</div><pre>{{ job.state_json }}</pre></div>
+            <div class="col-xl-6"><div class="small text-secondary mb-2">A · действие</div><pre>{{ job.action_json }}</pre><details class="mt-3"><summary>Память после действия</summary><pre class="mt-2">{{ job.memory_json }}</pre></details></div>
+          </div>
+          <div class="small text-secondary mt-3">{% for stage, value in job.result.stages.items %}{{ stage }}: {{ value.tokens }} токенов{% if not forloop.last %} · {% endif %}{% endfor %}</div>
+        </details>
+      {% elif not job.active %}
+        <div class="alert alert-warning small">{{ job.get_status_display }}{% if job.error %}: {{ job.error }}{% endif %}<div class="mt-1">Этот ход не добавлен в память модели.</div></div>
+        {% if job.result.stages %}<details class="mb-4"><summary>Вывод модели до остановки</summary>{% for stage, value in job.result.stages.items %}<div class="small text-secondary mt-3">{{ stage }} · {{ value.tokens }} токенов · маркер завершения: {{ value.stopped|yesno:'да,нет' }}</div><pre class="mt-2">{{ value.text }}</pre>{% endfor %}</details>{% endif %}
+      {% endif %}
+    {% empty %}<p class="text-secondary">Начните диалог, чтобы получить первую реплику модели.</p>{% endfor %}
+    {% if active_job %}<div class="d-flex align-items-center flex-wrap gap-3 mt-3" role="status"><span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span><span id="chat-phase">{{ phase }}</span><form method="post" action="{% url 'app_main:chat_stop' chat.pk %}" class="ms-auto">{% csrf_token %}<button class="btn btn-outline-secondary btn-sm" type="submit">Остановить</button></form></div>{% endif %}
+    {% if closed %}<p class="text-secondary small mt-3 mb-0">Модель выбрала CLOSE и завершила разговор. Для продолжения проверки начните новый диалог.</p>{% endif %}
+  </section>
+  {% if not closed %}
+  <form method="post" action="{% url 'app_main:chat_send' chat.pk %}" class="panel p-3" id="chat-message-form">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endfor %}
+    {% for field in form.hidden_fields %}{{ field }}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}{% endfor %}
+    <fieldset {% if active_job %}disabled{% endif %}>
+      {% if started %}<label class="form-label small" for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>{{ form.message }}{% for error in form.message.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}{% endif %}
+      <button class="btn btn-primary mt-3" type="submit">{% if started %}Отправить{% else %}Повторить начало диалога{% endif %}</button>
+    </fieldset>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'app_main/js/chat.js' %}"></script>{% endblock %}

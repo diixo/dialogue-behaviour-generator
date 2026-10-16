@@ -9,9 +9,16 @@ from job_runtime import FileLock, JobCancelled, JobControl, atomic_json
 
 
 def execute(spec, control):
-    from data import corpus_hash, read_episodes
     config = spec['config']
     control.check_stop()
+    if spec['kind'] == 'chat':
+        from chat_runtime import generate_chat_turn
+        from inference import HFPredictor
+        control.emit(phase='loading', percent=0)
+        predictor = HFPredictor(config['model'], device=config['device'], local_files_only=True,
+                                max_new_tokens=config['max_new_tokens'])
+        return generate_chat_turn(predictor, config['turns'], config['message'], control)
+    from data import corpus_hash, read_episodes
     control.emit(phase='data', percent=0)
     episodes = {}
     for split, expected in config['data_hashes'].items():

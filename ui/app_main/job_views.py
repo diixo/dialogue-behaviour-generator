@@ -14,7 +14,9 @@ from .models import Job
 from .views import page, paginate
 
 PHASES = {'data': 'Проверка данных', 'loading': 'Загрузка модели', 'prepared': 'Данные подготовлены',
-          'training': 'Обучение', 'saving': 'Сохранение checkpoint', 'benchmark': 'Оценка'}
+          'training': 'Обучение', 'saving': 'Сохранение checkpoint', 'benchmark': 'Оценка',
+          'chat_dst': 'Модель обновляет состояние', 'chat_policy': 'Модель выбирает действие',
+          'chat_response': 'Модель формулирует ответ'}
 
 
 def job_list(request):
@@ -70,6 +72,8 @@ def snapshot(job):
     output = Path(job.output)
     filename, route = ('experiment.json', 'experiment') if job.kind == 'train' else ('report.json', 'report_detail')
     result_url = reverse(f'app_main:{route}', args=[artifacts.artifact_id(output / filename)]) if (output / filename).is_file() else ''
+    if job.chat_session_id:
+        result_url = reverse('app_main:chat', args=[job.chat_session_id])
     checkpoint = job.result.get('checkpoint') or progress.get('checkpoint')
     resumable = bool(job.kind == 'train' and job.status in ('stopped', 'failed', 'cancelled')
                      and checkpoint and Path(checkpoint).is_dir())
@@ -83,6 +87,8 @@ def snapshot(job):
 
 def job_detail(request, identifier):
     job = get_object_or_404(Job, pk=identifier)
+    if job.chat_session_id:
+        return redirect('app_main:chat', identifier=job.chat_session_id)
     return page(request, 'job', job.name, 'jobs', job=job, snapshot=snapshot(job))
 
 
@@ -96,4 +102,6 @@ def job_status(request, identifier):
 def stop_job(request, identifier):
     job = get_object_or_404(Job, pk=identifier)
     jobs.request_stop(job)
+    if job.chat_session_id:
+        return redirect('app_main:chat', identifier=job.chat_session_id)
     return redirect('app_main:job', identifier=job.pk)
