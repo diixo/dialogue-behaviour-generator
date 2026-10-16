@@ -15,8 +15,9 @@ from torch.utils.data import Dataset
 from compile_sft import PERSONA, build_messages, compile_row, serialize_action
 from dialogue_format import get_format
 from generator import compile_views
+from experiment_config import TRAIN_TASKS
 
-TASKS = ('dst', 'extraction', 'policy', 'response', 'history', 'ubar')
+TASKS = TRAIN_TASKS
 SEGMENTS = {
     'dst': ('<|state|>', '<|end_state|>'),
     'policy': ('<|action|>', '<|end_action|>'),

@@ -27,8 +27,9 @@ from generator import (ACKS, ASK_TEXT, CLOSES, FOLLOWUP, SLOTS, Action, State,
                        UserSimulator, commit_action, compile_views, observe,
                        select_action, write_jsonl)
 from inference import Prediction, PredictorRouter, Request, parse_extraction, parse_state
+from experiment_config import EVAL_MODES
 
-MODES = ('dst', 'extraction', 'policy', 'response', 'history', 'policy_response', 'full', 'rollout')
+MODES = EVAL_MODES
 ANSWERS = ('I do not have a time of day myself, but I would be happy to chat.',
            'I am here to help and chat with you.')
 
@@ -162,13 +163,16 @@ def score_response(record, text, expected_action, conditioned_action, reference=
             record['errors'].append('response.wrong_action_template')
 
 
-def replay(episodes, predictor, mode, style):
+def replay(episodes, predictor, mode, style, progress=None):
     records = []
-    for episode in episodes:
+    for episode_number, episode in enumerate(episodes):
         views = compile_views(episode)
         extractions = {row['next_turn']: row for row in views['extraction']}
         previous_blocks = []
         for turn, policy_row in zip(episode['turns'], views['policy']):
+            if progress:
+                progress(completed_episodes=episode_number, total_episodes=len(episodes),
+                         episode_id=episode['episode_id'], turn=turn['index'])
             index = turn['index']
             gold_state, gold_action = policy_row['state'], policy_row['target_action']
             history = policy_row['history']
@@ -229,15 +233,18 @@ def replay(episodes, predictor, mode, style):
     return records, []
 
 
-def rollout(episodes, predictor, style, seed, max_turns):
+def rollout(episodes, predictor, style, seed, max_turns, progress=None):
     records, outcomes = [], []
-    for episode in episodes:
+    for episode_number, episode in enumerate(episodes):
         truth, memory = State(), State()
         simulator = UserSimulator(random.Random(f'{seed}:{episode["episode_id"]}'), episode['hidden_user'])
         history, previous_blocks, current = [], [], ''
         reaction, terminal = 'OPENING', 'horizon_limit'
         episode_records = []
         for index in range(max_turns):
+            if progress:
+                progress(completed_episodes=episode_number, total_episodes=len(episodes),
+                         episode_id=episode['episode_id'], turn=index)
             expected = action_dict(select_action(truth))
             record = new_record(episode, index, reaction, expected)
             record['reference'] = {'state': truth.snapshot(), 'action': expected}
@@ -320,16 +327,18 @@ def summarize(records):
     }, requests
 
 
-def run_benchmark(episodes, predictor, *, mode='full', seed=42, max_turns=17):
+def run_benchmark(episodes, predictor, *, mode='full', seed=42, max_turns=17, progress=None):
     if mode not in MODES or max_turns <= 0 or not episodes:
         raise ValueError('Choose a valid mode, positive horizon and nonempty episodes')
     if len({episode['episode_id'] for episode in episodes}) != len(episodes):
         raise ValueError('Duplicate evaluation episode IDs')
     style = getattr(predictor, 'style', 'plain')
     if mode == 'rollout':
-        records, outcomes = rollout(episodes, predictor, style, seed, max_turns)
+        records, outcomes = rollout(episodes, predictor, style, seed, max_turns, progress)
     else:
-        records, outcomes = replay(episodes, predictor, mode, style)
+        records, outcomes = replay(episodes, predictor, mode, style, progress)
+    if progress:
+        progress(completed_episodes=len(episodes), total_episodes=len(episodes), episode_id=None, turn=None)
     errors, groups, requests = summarize(records)
     report = {'schema_version': 1, 'mode': mode, 'seed': seed, 'max_turns': max_turns,
               'splits': sorted({ep['split'] for ep in episodes}), 'corpus_hash': corpus_hash(episodes),

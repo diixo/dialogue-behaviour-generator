@@ -1,0 +1,37 @@
+{% extends 'app_main/base.html' %}
+{% block content %}
+<a class="small" href="{% url 'app_main:jobs' %}">← Очередь задач</a>
+<div class="mt-3">{% include 'app_main/includes/worker.html' %}</div>
+{% if kind == 'train' %}
+<p class="text-secondary">По умолчанию: pretrained GPT-2, 2 эпохи. Каждый запуск сохраняется в отдельный каталог.</p>
+{% elif kind == 'resume' %}
+<p class="protocol-note">Веса, оптимизатор и расписание обучения восстанавливаются из checkpoint. Общее число эпох сохраняется. Результат продолжения записывается в новый каталог.</p>
+{% else %}
+<p class="protocol-note">Для UBAR выберите общую модель. Для модульной цепочки задайте модели B → A → R отдельно. Поля этапов переопределяют общую модель. В full используется записанная предыстория, в rollout — собственный контекст модели.</p>
+{% endif %}
+<div class="panel mb-4">{% include 'app_main/includes/splits.html' %}</div>
+<form method="post" class="panel p-4">
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endfor %}
+  <div class="row g-4">
+  {% for field in form %}
+    {% if field.is_hidden %}{{ field }}{% for error in field.errors %}<div class="text-danger">{{ error }}</div>{% endfor %}{% else %}
+    <div class="col-md-6 col-xl-4">
+      {% if field.field.widget.input_type == 'checkbox' %}
+        <div class="form-check mt-md-4">{{ field }}<label class="form-check-label small" for="{{ field.id_for_label }}">{{ field.label }}</label></div>
+      {% else %}
+        <label class="form-label small" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+      {% endif %}
+      {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+      {% for error in field.errors %}<div class="text-danger small mt-1" role="alert">{{ error }}</div>{% endfor %}
+    </div>
+    {% endif %}
+  {% endfor %}
+  </div>
+  <div class="border-top mt-4 pt-4 d-flex align-items-center flex-wrap gap-3">
+    <button class="btn btn-primary" type="submit">Поставить в очередь</button>
+    <span class="text-secondary small">Версия датасета фиксируется при создании задачи.</span>
+  </div>
+</form>
+{% if kind != 'benchmark' %}<p class="small text-secondary mt-3">Точное число примеров и токенов будет рассчитано при подготовке данных и показано в задаче до первого шага обучения. При отключённом локальном режиме недостающие файлы модели загружаются из Hugging Face.</p>{% endif %}
+{% endblock %}

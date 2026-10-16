@@ -1,5 +1,6 @@
 {% extends 'app_main/base.html' %}
 {% block content %}
+<div class="d-flex gap-2 mb-4"><a class="btn btn-primary" href="{% url 'app_main:new_benchmark' %}">Новый бенчмарк</a><a class="btn btn-light" href="{% url 'app_main:jobs' %}">Очередь</a></div>
 <p class="text-secondary">Оценка отдельных этапов и полной цепочки. Выберите 2–4 отчёта для сравнения.</p>
 <form method="get" class="d-flex gap-2 mb-3 align-items-end"><label class="small">Протокол<select class="form-select form-select-sm mt-1" name="mode"><option value="">Все</option>{% for name in modes %}<option {% if mode == name %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label><button class="btn btn-sm btn-outline-primary">Применить</button></form>
 <form action="{% url 'app_main:compare' %}" method="get"><div class="panel"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th><span class="visually-hidden">Выбрать</span></th><th>Отчёт</th><th>Протокол</th><th>Split</th><th>Эпизоды / ходы</th><th>Версия контента</th></tr></thead><tbody>

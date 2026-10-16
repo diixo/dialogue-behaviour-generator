@@ -7,12 +7,15 @@ for train/validation/test. All training modes default to pretrained `gpt2`; no t
 
 #### Run django-server:
 ```bash
+py ui/manage.py migrate
 py ui/manage.py runserver
 ```
 
+Start the job worker in a second terminal: `py ui/manage.py runworker`.
+
 The UI browses episodes, linked SFT examples, training artifacts and benchmark errors.
 It reads `data/`, `outputs/` and `runs/`; paths are configured in `ui/ui/settings.py`.
-Training and evaluation are currently launched through the CLI.
+The UI queues training/evaluation, shows live progress and supports checkpoint stop/resume.
 
 
 ## Data

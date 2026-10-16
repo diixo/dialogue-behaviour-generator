@@ -1,0 +1,40 @@
+{% extends 'app_main/base.html' %}
+{% load static %}
+{% block content %}
+<div id="job-monitor" data-status-url="{% url 'app_main:job_status' job.pk %}">
+  <div class="d-flex flex-wrap gap-3 mb-3 small">
+    <a href="{% url 'app_main:jobs' %}">← Очередь</a><span>{{ job.get_kind_display }}</span>
+    <strong id="job-status">{{ snapshot.label }}</strong>
+  </div>
+  <div id="worker-warning" class="alert alert-info small" {% if snapshot.worker_online or not snapshot.active %}hidden{% endif %}>
+    Worker не подключён. Запустите <code>py ui/manage.py runworker</code> в отдельном терминале.
+  </div>
+  <div id="poll-warning" class="alert alert-warning small" hidden>Не удалось обновить состояние. Повторяем подключение…</div>
+  <div id="job-error" class="alert alert-danger" {% if not snapshot.error %}hidden{% endif %}>{{ snapshot.error }}</div>
+  <section class="panel p-4 mb-4">
+    <div class="d-flex justify-content-between gap-3 mb-2"><span id="job-phase">{{ snapshot.phase }}</span><span id="job-percent">{{ snapshot.percent|floatformat:1 }}%</span></div>
+    <progress id="job-progress" class="job-progress" max="100" value="{{ snapshot.percent }}" aria-label="Прогресс задачи"></progress>
+    <p class="small text-secondary mt-2 mb-0" id="job-position"></p>
+    <div id="job-loss" class="small mt-3"></div>
+    <div class="d-flex flex-wrap gap-2 mt-4">
+      <form id="stop-form" method="post" action="{% url 'app_main:stop_job' job.pk %}" {% if not snapshot.can_stop %}hidden{% endif %}>
+        {% csrf_token %}<button class="btn btn-outline-danger btn-sm" type="submit">{% if job.kind == 'train' %}Остановить с сохранением{% else %}Остановить оценку{% endif %}</button>
+      </form>
+      <a id="resume-link" class="btn btn-outline-primary btn-sm" href="{% url 'app_main:resume_training' %}?job={{ job.pk }}" {% if not snapshot.resumable %}hidden{% endif %}>Продолжить из checkpoint</a>
+      <a id="result-link" class="btn btn-primary btn-sm" href="{{ snapshot.result_url }}" {% if not snapshot.result_url %}hidden{% endif %}>Открыть результат</a>
+    </div>
+    <p class="small text-secondary mt-3 mb-0">{% if job.kind == 'train' %}Остановка выполняется после текущего шага оптимизатора с оценкой и сохранением checkpoint. При подготовке данных обучение отменяется до первого шага.{% else %}Оценка остановится после текущего хода. Прерванный прогон не публикуется как полный отчёт.{% endif %}</p>
+  </section>
+  <details class="panel p-3 mb-4" id="dataset-stats" hidden>
+    <summary>Статистика подготовленного датасета</summary><pre id="dataset-values" class="mt-3"></pre>
+  </details>
+  <section class="panel mb-4">
+    <div class="panel-heading"><h2 class="h6 mb-0">Журнал</h2><span class="small text-secondary">Последние 24 КБ · обновление раз в 2 секунды</span></div>
+    <pre id="job-log" class="job-log">{{ snapshot.log|default:'Задача ещё не начала выполнение.' }}</pre>
+  </section>
+  <details class="panel p-3"><summary>Параметры запуска</summary><pre id="job-config" class="mt-3"></pre><p class="small text-secondary mt-3 mb-0">Результаты: <code>{{ job.output }}</code></p></details>
+</div>
+{{ job.config|json_script:'job-config-data' }}
+{{ snapshot|json_script:'job-initial-data' }}
+{% endblock %}
+{% block scripts %}<script src="{% static 'app_main/js/jobs.js' %}"></script>{% endblock %}

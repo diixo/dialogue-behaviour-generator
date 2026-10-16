@@ -18,6 +18,7 @@ from pathlib import Path
 
 from data import TASKS, SPECIAL_TOKENS, collate_batch, corpus_hash, make_dataset, read_episodes
 from dialogue_format import FORMATS
+from experiment_config import TRAIN_DEFAULTS
 
 
 def dataset_stats(dataset):
@@ -70,7 +71,7 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
                      model_name='provided-model', style='plain', max_length=1024,
                      loss_scope='targets', epochs=2, batch_size=4,
                      accumulation=1, learning_rate=8e-5, warmup_ratio=0.05, seed=42,
-                     use_cpu=False, resume=None):
+                     use_cpu=False, resume=None, job_control=None):
     from transformers import Trainer, TrainingArguments, set_seed
 
     set_seed(seed)
@@ -132,6 +133,9 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
         'train': dataset_stats(train_data),
         'validation': dataset_stats(validation_data)
         }
+    if job_control is not None:
+        job_control.check_stop()
+        job_control.emit(phase='prepared', dataset=manifest)
     config_path = output / 'experiment.json'
     if resume is not None:
         if not config_path.exists():
@@ -164,6 +168,7 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
         metric_for_best_model='eval_loss',
         greater_is_better=False,
         report_to=[],
+        disable_tqdm=job_control is not None,
         logging_steps=10,
         use_cpu=use_cpu,
         optim='adamw_torch',
@@ -175,12 +180,21 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
                       eval_dataset=validation_data,
                       processing_class=tokenizer,
                       data_collator=partial(collate_batch, padding_value=tokenizer.pad_token_id))
+    if job_control is not None:
+        from job_runtime import training_callback
+        trainer.add_callback(training_callback(job_control))
     if trainer.is_world_process_zero():
         print_dataset_summary(manifest, (
             ('train', train_data, train_episodes),
             ('validation', validation_data, validation_episodes),
         ))
     result = trainer.train(resume_from_checkpoint=resume)
+    if job_control is not None and job_control.stopped:
+        from job_runtime import atomic_json
+        result = {'stopped': True, 'global_step': trainer.state.global_step,
+                  'epoch': trainer.state.epoch, 'checkpoint': job_control.progress.get('checkpoint')}
+        atomic_json(output / 'interrupted.json', result)
+        return result
     metrics = {
         **result.metrics,
         **trainer.evaluate(),
@@ -212,6 +226,7 @@ def main():
     parser.add_argument('--cpu', action='store_true')
     parser.add_argument('--local-files-only', action='store_true')
     parser.add_argument('--resume', help='Checkpoint path; keep the original experiment arguments')
+    parser.set_defaults(**TRAIN_DEFAULTS)
     args = parser.parse_args()
     if args.limit_episodes is not None and args.limit_episodes <= 0:
         parser.error('--limit-episodes must be positive')
@@ -219,8 +234,9 @@ def main():
     validation = read_episodes(args.data, 'validation')[:args.limit_episodes]
     from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
     set_seed(args.seed)
-    tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=args.local_files_only)
-    model = AutoModelForCausalLM.from_pretrained(args.model, local_files_only=args.local_files_only)
+    source = args.resume or args.model
+    tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=args.local_files_only)
+    model = AutoModelForCausalLM.from_pretrained(source, local_files_only=args.local_files_only)
     metrics = train_experiment(
         model,
         tokenizer,

@@ -5,3 +5,5 @@ runs/
 
 output/
 outputs/
+ui/db.sqlite3-*
+ui/.jobs/

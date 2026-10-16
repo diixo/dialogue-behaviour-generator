@@ -22,7 +22,8 @@ def pretty(value):
 
 def page(request, template, title, section, **context):
     navigation = [('main', 'Обзор', 'grid'), ('datasets', 'Данные', 'database'),
-                  ('experiments', 'Обучение', 'cpu'), ('reports', 'Бенчмарки', 'bar-chart')]
+                  ('experiments', 'Обучение', 'cpu'), ('reports', 'Бенчмарки', 'bar-chart'),
+                  ('jobs', 'Очередь', 'list-task')]
     return render(request, f'app_main/{template}.html', {
         'title': title, 'section': section, 'navigation': navigation, **context,
     })
@@ -210,6 +211,7 @@ def experiment(request, identifier):
                 related.append(report)
                 break
     return page(request, 'experiment', run['name'], 'experiments', run=run, metrics=metrics,
+                model_id=artifacts.artifact_id(run['path']),
                 config_json=pretty(run['config']), metrics_json=pretty(metrics), checkpoints=checkpoints,
                 history=history, chart=loss_chart(history), matches=matches, reports=related,
                 issues=issues + data_issues + discovery_issues)

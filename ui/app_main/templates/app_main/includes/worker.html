@@ -1,0 +1,6 @@
+{% if not worker_online %}
+<div class="alert alert-info small">
+  Worker не подключён. Задачи останутся в очереди до его запуска в отдельном терминале:
+  <code>py ui/manage.py runworker</code>
+</div>
+{% else %}<p class="small text-success">● Worker подключён · одна задача одновременно</p>{% endif %}

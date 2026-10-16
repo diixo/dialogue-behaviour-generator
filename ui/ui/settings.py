@@ -20,6 +20,8 @@ PROJECT_ROOT = BASE_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 DIALOGUE_DATA_DIR = PROJECT_ROOT / 'data'
 DIALOGUE_RUN_DIRS = [PROJECT_ROOT / 'outputs', PROJECT_ROOT / 'runs']
+DIALOGUE_OUTPUT_DIR = PROJECT_ROOT / 'runs'
+DIALOGUE_JOBS_DIR = BASE_DIR / '.jobs'
 
 
 # Quick-start development settings - unsuitable for production
@@ -111,7 +113,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Kyiv'
 
 USE_I18N = True
 
