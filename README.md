@@ -16,8 +16,10 @@ Start the job worker in a second terminal: `py ui/manage.py runworker`.
 The UI browses episodes, linked SFT examples, training artifacts and benchmark errors.
 It reads `data/`, `outputs/` and `runs/`; paths are configured in `ui/ui/settings.py`.
 The UI queues training/evaluation, shows live progress and supports checkpoint stop/resume.
-Chat with a trained UBAR model through the same worker and inspect each turn's state and action.
+Chat with trained UBAR or History models through the same worker.
+`UbarChat` predicts state → action → reply; `HistoryChat` generates a reply from conversation history.
 
+CLI: `python chat_runtime.py --model runs/history` (or a UBAR checkpoint).
 Commands: `/reset`, `/exit`; use `--device cuda` for GPU. Only `torch` and `transformers`
 are required. To distribute the chat separately, copy `chat_runtime.py`, `inference.py`,
 `dialogue_protocol.py`, `dialogue_format.py`, `requirements-chat.txt` and the model directory
@@ -25,13 +27,6 @@ are required. To distribute the chat separately, copy `chat_runtime.py`, `infere
 
 
 ## Data
-
-| View | Input → target |
-| --- | --- |
-| `extraction` | History + state before the user message + user message → observation and complete updated state |
-| `policy` | History + updated state → next action |
-| `response` | History + updated state + action → assistant reply |
-| `history` | History → assistant reply |
 
 Within an episode, `extraction[t].target_state` equals the `state` of
 `policy[t]` and `response[t]`; `history[t]` is the corresponding direct-reply
@@ -60,7 +55,19 @@ python -m unittest discover -v
 
 Generation and SFT export themselves require only the Python standard library.
 
-Training tasks: `dst` (state only), `extraction`, `policy`, `response`, `history`, `ubar`.
+Training tasks:
+
+Во всех режимах вход включает инструкцию, а переписка — текущее сообщение пользователя.
+
+| **Task** | **Input** | **Output** | **Status** |
+| -------- | --------- | ---------- | ---------- |
+| `dst`    | Переписка + состояние до текущего сообщения пользователя | Полное обновлённое состояние (JSON) | Обучение и бенчмарк реализованы |
+| `extraction` | Переписка + состояние до текущего сообщения пользователя | Наблюдение и полное обновлённое состояние (JSON) | Обучение и бенчмарк реализованы |
+| `policy` | Переписка + обновлённое состояние | Следующее действие, например `ASK(mood)` | Обучение и бенчмарк реализованы |
+| `response` | Переписка + обновлённое состояние + действие | Текст ответа | Обучение и бенчмарк реализованы |
+| `history` | Переписка | Текст ответа | Обучение, бенчмарк и чат реализованы |
+| `ubar`    | Переписка + предыдущие состояния и действия | Состояние → действие → ответ | Обучение, бенчмарк и чат реализованы |
+
 Benchmark settings: `--chain` selects stages (`full` = DST → policy → response),
 `--context reference|predicted` selects prior history/memory, and
 `--user-source dataset|simulator` selects user messages. Predicted context requires
