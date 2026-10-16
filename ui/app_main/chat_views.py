@@ -70,6 +70,7 @@ def render_chat(request, chat, form=None):
         job.action_json = pretty(job.result.get('action'))
     form = form or MessageForm(initial={'previous_job': last.pk if last else None})
     return page(request, 'chat', 'Диалог с моделью', 'chats', chat=chat, turns=turns, form=form,
+                is_history=chat.config.get('task', 'ubar') == 'history',
                 active_job=active, phase=PHASES.get(active.progress.get('phase'), active.get_status_display()) if active else '',
                 started=bool(completed), closed=bool(last and last.result.get('closed')),
                 worker_online=jobs.worker_online(), model_id=artifacts.artifact_id(Path(chat.config['model'])))

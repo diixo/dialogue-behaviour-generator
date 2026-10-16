@@ -28,8 +28,8 @@ class ChatTests(TestCase):
         self.addCleanup(override.disable)
         self.addCleanup(artifacts._json.cache_clear)
 
-    def create_chat(self, message='Hi!'):
-        data = {'submission_id': uuid.uuid4(), 'model': artifacts.artifact_id(self.model),
+    def create_chat(self, message='Hi!', model=None):
+        data = {'submission_id': uuid.uuid4(), 'model': artifacts.artifact_id(model or self.model),
                 'device': 'cpu', 'max_new_tokens': 192}
         with patch('app_main.jobs.subprocess.Popen') as launch:
             first = self.client.post(reverse('app_main:chats'), data)
@@ -104,6 +104,59 @@ class ChatTests(TestCase):
         self.assertEqual(chat.jobs.count(), 2)
         self.assertEqual(self.send(chat, second, 'Another message').status_code, 302)
         self.assertEqual(chat.jobs.count(), 3)
+
+    def test_history_model_can_chat_without_state_or_action_panels(self):
+        model = self.root / 'models' / 'history'
+        model.mkdir()
+        for name, value in [('experiment.json', {'task': 'history', 'dialogue_start': 'user'}), ('config.json', {})]:
+            (model / name).write_text(json.dumps(value), encoding='utf-8')
+        (model / 'model.safetensors').write_bytes(b'fixture')
+        model_id = artifacts.artifact_id(model)
+        catalog = self.client.get(reverse('app_main:chats') + f'?model={model_id}')
+        self.assertIn(model_id, catalog.context['form'].catalog)
+        self.assertEqual(catalog.context['form'].initial['model'], model_id)
+        experiment_id = artifacts.artifact_id(model / 'experiment.json')
+        experiment = self.client.get(reverse('app_main:experiment', args=[experiment_id]))
+        self.assertContains(experiment, f'{reverse("app_main:chats")}?model={model_id}')
+
+        chat = self.create_chat(message=None, model=model)
+        self.assertEqual(chat.config['task'], 'history')
+        empty = self.client.get(reverse('app_main:chat', args=[chat.pk]))
+        self.assertContains(empty, 'Модель ответит по истории переписки.')
+        self.assertNotContains(empty, 'Модель начнёт с извлечения фактов')
+        self.assertEqual(self.send(chat, message='It is evening.').status_code, 302)
+        first = chat.jobs.get()
+        first.status = Job.Status.COMPLETED
+        first.result = {'status': 'completed', 'message': 'It is evening.', 'response': 'Good evening!',
+                        'closed': False, 'stages': {'history': {'text': 'Good evening!', 'tokens': 4, 'stopped': True}}}
+        first.save()
+        page = self.client.get(reverse('app_main:chat', args=[chat.pk]))
+        self.assertContains(page, 'Good evening!')
+        self.assertContains(page, 'Ответ · 4 токенов')
+        self.assertContains(page, 'id="chat-message-form"')
+        self.assertNotContains(page, 'Состояние и действие')
+        self.assertNotContains(page, 'B · предсказанное состояние')
+        self.assertNotContains(page, 'A · предсказанное действие')
+        self.assertEqual(self.send(chat, first, 'I am reading.').status_code, 302)
+        second = chat.jobs.exclude(pk=first.pk).get()
+        self.assertEqual(second.config['turns'], [first.result])
+        self.assertNotIn('state', second.config['turns'][0])
+        second.progress = {'phase': 'chat_history'}
+        second.save()
+        status = self.client.get(reverse('app_main:chat_status', args=[chat.pk])).json()
+        self.assertEqual(status['phase'], 'Модель отвечает по переписке')
+
+    def test_legacy_chat_without_task_keeps_ubar_details_and_continuity(self):
+        chat = self.create_chat()
+        chat.config.pop('task')
+        chat.save()
+        first = chat.jobs.get()
+        self.complete(first)
+        page = self.client.get(reverse('app_main:chat', args=[chat.pk]))
+        self.assertContains(page, 'B · предсказанное состояние')
+        self.assertContains(page, 'A · предсказанное действие')
+        self.assertEqual(self.send(chat, first).status_code, 302)
+        self.assertEqual(chat.jobs.exclude(pk=first.pk).get().config['turns'], [first.result])
 
     def test_failures_do_not_advance_history_and_model_output_is_escaped(self):
         chat = self.create_chat()

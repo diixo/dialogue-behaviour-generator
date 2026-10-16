@@ -16,7 +16,7 @@ from .views import page, paginate
 PHASES = {'data': 'Проверка данных', 'loading': 'Загрузка модели', 'prepared': 'Данные подготовлены',
           'training': 'Обучение', 'saving': 'Сохранение checkpoint', 'benchmark': 'Оценка',
           'chat_dst': 'Модель обновляет состояние', 'chat_policy': 'Модель выбирает действие',
-          'chat_response': 'Модель формулирует ответ'}
+          'chat_response': 'Модель формулирует ответ', 'chat_history': 'Модель отвечает по переписке'}
 
 
 def job_list(request):

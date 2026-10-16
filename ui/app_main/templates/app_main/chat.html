@@ -15,6 +15,9 @@
       {% if job.config.message %}<div class="bubble user mb-3"><small>ВЫ</small>{{ job.config.message }}</div>{% endif %}
       {% if job.status == 'completed' %}
         <div class="bubble assistant"><small>МОДЕЛЬ</small>{{ job.result.response }}</div>
+        {% if is_history %}
+        <div class="small text-secondary mb-4 mt-2">Ответ · {{ job.result.stages.history.tokens }} токенов</div>
+        {% else %}
         <details class="chat-turn-details mb-4 mt-2">
           <summary>Состояние и действие</summary>
           <div class="row g-3 mt-1">
@@ -23,11 +26,12 @@
           </div>
           <div class="small text-secondary mt-3">{% for stage, value in job.result.stages.items %}{{ stage }}: {{ value.tokens }} токенов{% if not forloop.last %} · {% endif %}{% endfor %}</div>
         </details>
+        {% endif %}
       {% elif not job.active %}
         <div class="alert alert-warning small">{{ job.get_status_display }}{% if job.error %}: {{ job.error }}{% endif %}<div class="mt-1">Этот ход не добавлен в память модели.</div></div>
         {% if job.result.stages %}<details class="mb-4"><summary>Вывод модели до остановки</summary>{% for stage, value in job.result.stages.items %}<div class="small text-secondary mt-3">{{ stage }} · {{ value.tokens }} токенов · маркер завершения: {{ value.stopped|yesno:'да,нет' }}</div><pre class="mt-2">{{ value.text }}</pre>{% endfor %}</details>{% endif %}
       {% endif %}
-    {% empty %}<p class="text-secondary">Напишите первое сообщение. Модель начнёт с извлечения фактов из вашего запроса.</p>{% endfor %}
+    {% empty %}<p class="text-secondary">Напишите первое сообщение. {% if is_history %}Модель ответит по истории переписки.{% else %}Модель начнёт с извлечения фактов из вашего запроса.{% endif %}</p>{% endfor %}
     {% if active_job %}<div class="d-flex align-items-center flex-wrap gap-3 mt-3" role="status"><span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span><span id="chat-phase">{{ phase }}</span><form method="post" action="{% url 'app_main:chat_stop' chat.pk %}" class="ms-auto">{% csrf_token %}<button class="btn btn-outline-secondary btn-sm" type="submit">Остановить</button></form></div>{% endif %}
     {% if closed %}<p class="text-secondary small mt-3 mb-0">Модель выбрала CLOSE и завершила разговор. Для продолжения проверки начните новый диалог.</p>{% endif %}
   </section>

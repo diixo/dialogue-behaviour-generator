@@ -7,14 +7,14 @@
     <form method="post" class="panel p-4">
       {% csrf_token %}
       <h2 class="h5 mb-3">Новый диалог</h2>
-      <p class="small text-secondary">Напишите первым: модель извлечёт факты, выберет действие и ответит. Датасет англоязычный — начните проверку с реплик на английском.</p>
+      <p class="small text-secondary">Напишите первым. UBAR обновляет состояние, выбирает действие и отвечает; History сразу отвечает по переписке. Датасет англоязычный — начните проверку с реплик на английском.</p>
       {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
       {% for field in form %}
         {% if field.is_hidden %}{{ field }}{% else %}<div class="mb-3"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>{% endif %}
         {% for error in field.errors %}<div class="text-danger small mb-3">{{ error }}</div>{% endfor %}
       {% endfor %}
       {% if form.catalog %}<button class="btn btn-primary" type="submit">Начать диалог</button>
-      {% else %}<p class="text-secondary mb-0">Обученные модели UBAR не найдены. Сначала завершите обучение.</p>{% endif %}
+      {% else %}<p class="text-secondary mb-0">Обученные модели UBAR или History не найдены. Сначала завершите обучение.</p>{% endif %}
     </form>
   </section>
   <section class="col-lg-5">

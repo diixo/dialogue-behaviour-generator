@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
-from chat_runtime import generate_chat_turn, main
+from chat_runtime import HistoryChat, UbarChat, create_chat, generate_chat_turn, main
 from dialogue_protocol import State, segment, state_text, ubar_user
 from inference import Prediction
 from job_runtime import JobCancelled, JobControl
@@ -30,6 +30,10 @@ class ScriptedPredictor:
         self.requests.append(deepcopy(request))
         output = next(self.outputs)
         return output if isinstance(output, Prediction) else Prediction(output, tokens=5)
+
+
+class HistoryPredictor(ScriptedPredictor):
+    task = 'history'
 
 
 class ChatRuntimeTests(TestCase):
@@ -177,6 +181,119 @@ class ChatRuntimeTests(TestCase):
             load.assert_called_once_with('local-checkpoint', device='cpu', local_files_only=True, max_new_tokens=192)
 
 
+class HistoryChatTests(TestCase):
+    def test_reply_accepts_only_messages_and_returns_the_model_text(self):
+        model = HistoryPredictor('  How are you feeling?\n')
+        history = [
+            {'role': 'user', 'content': 'It is evening.'},
+            {'role': 'assistant', 'content': 'What are you doing?'},
+            {'role': 'user', 'content': 'I would rather not say.'},
+        ]
+        before = deepcopy(history)
+        response = HistoryChat(model).reply(history)
+        self.assertEqual(response, '  How are you feeling?\n')
+        self.assertEqual(history, before)
+        self.assertEqual(len(model.requests), 1)
+        request = model.requests[0]
+        self.assertEqual(request.task, 'history')
+        self.assertEqual(request.history, history)
+        self.assertIsNone(request.state)
+        self.assertIsNone(request.action)
+        self.assertEqual(request.session, [])
+
+    def test_turns_keep_own_replies_without_state_and_eos_does_not_close_chat(self):
+        model = HistoryPredictor('Bye!', 'Welcome back.')
+        chat = create_chat(model)
+        first = chat.generate_turn([], 'I have to go.')
+        before = deepcopy(first)
+        self.assertEqual(first['status'], 'completed')
+        self.assertFalse(first['closed'])
+        self.assertEqual(set(first['stages']), {'history'})
+        for field in ('state', 'action', 'block', 'memory'):
+            self.assertNotIn(field, first)
+        second = chat.generate_turn([first], 'One more question.')
+        self.assertEqual(second['response'], 'Welcome back.')
+        self.assertEqual(model.requests[1].history, [
+            {'role': 'user', 'content': 'I have to go.'},
+            {'role': 'assistant', 'content': 'Bye!'},
+            {'role': 'user', 'content': 'One more question.'}])
+        self.assertEqual(first, before)
+
+    def test_implementation_selection_and_invalid_history_fail_before_prediction(self):
+        self.assertIsInstance(create_chat(ScriptedPredictor()), UbarChat)
+        self.assertIsInstance(create_chat(HistoryPredictor()), HistoryChat)
+        for implementation, model in ((UbarChat, HistoryPredictor()), (HistoryChat, ScriptedPredictor())):
+            with self.subTest(implementation=implementation), self.assertRaises(ValueError):
+                implementation(model)
+        for task in ('dst', 'policy', 'response', 'extraction', None):
+            model = ScriptedPredictor()
+            model.task = task
+            with self.subTest(task=task), self.assertRaises(ValueError):
+                create_chat(model)
+        model = HistoryPredictor()
+        chat = HistoryChat(model)
+        for history in ([], [{'role': 'assistant', 'content': 'Hi!'}],
+                        [{'role': 'user', 'content': '  '}],
+                        [{'role': 'user', 'content': 'Hi!'}, {'role': 'assistant', 'content': 'Hello!'}],
+                        [{'role': 'system', 'content': 'Instruction'}, {'role': 'assistant', 'content': 'Hi!'},
+                         {'role': 'user', 'content': 'Hello'}]):
+            with self.subTest(history=history), self.assertRaises(ValueError):
+                chat.reply(history)
+        for message in (None, '', '  '):
+            with self.subTest(message=message), self.assertRaises(ValueError):
+                chat.generate_turn([], message)
+        self.assertEqual(model.requests, [])
+
+    def test_failed_generation_does_not_advance_turns_and_reply_raises(self):
+        first = HistoryChat(HistoryPredictor('Hi!')).generate_turn([], 'Hello')
+        turns = [first]
+        before = deepcopy(turns)
+        for output in (Prediction('Incomplete', stopped=False), Prediction('  '),
+                       Prediction('Error', error='bad output')):
+            with self.subTest(output=output):
+                model = HistoryPredictor(output, output)
+                chat = HistoryChat(model)
+                failed = chat.generate_turn(turns, 'Tell me more.')
+                self.assertEqual(failed['status'], 'failed')
+                self.assertEqual(failed['stages']['history']['text'], output.text)
+                self.assertNotIn('response', failed)
+                with self.assertRaises(ValueError):
+                    chat.reply([{'role': 'user', 'content': 'Hi!'}])
+                self.assertEqual(turns, before)
+
+    def test_cancellation_before_or_after_history_prediction_is_propagated(self):
+        for cancel_before in (True, False):
+            with self.subTest(cancel_before=cancel_before), TemporaryDirectory() as directory:
+                control = JobControl(directory)
+                stop = Path(directory) / 'stop.request'
+                calls = []
+                class CancellingPredictor:
+                    task = 'history'
+
+                    def __call__(self, request):
+                        calls.append(request)
+                        stop.touch()
+                        return Prediction('A reply')
+
+                if cancel_before:
+                    stop.touch()
+                with self.assertRaises(JobCancelled):
+                    HistoryChat(CancellingPredictor()).generate_turn([], 'Hi!', control=control)
+                self.assertEqual(len(calls), 0 if cancel_before else 1)
+
+    def test_worker_selects_history_chat_without_dataset_configuration(self):
+        model = HistoryPredictor('Good evening!')
+        with TemporaryDirectory() as directory, patch('inference.HFPredictor', return_value=model) as load:
+            result = execute({'kind': 'chat', 'config': {'model': 'history-checkpoint', 'device': 'cpu',
+                              'max_new_tokens': 192, 'turns': [], 'message': 'It is evening.'}}, JobControl(directory))
+            progress = json.loads((Path(directory) / 'progress.json').read_text(encoding='utf-8'))
+        self.assertEqual(result['response'], 'Good evening!')
+        self.assertEqual(progress['phase'], 'chat_history')
+        self.assertEqual([request.task for request in model.requests], ['history'])
+        self.assertNotIn('state', result)
+        load.assert_called_once_with('history-checkpoint', device='cpu', local_files_only=True, max_new_tokens=192)
+
+
 class StandaloneChatTests(TestCase):
     def test_portable_files_work_without_site_packages_or_repository(self):
         root = Path(__file__).parent
@@ -186,7 +303,7 @@ class StandaloneChatTests(TestCase):
             code = '''
 import sys
 sys.path.insert(0, sys.argv[1])
-from chat_runtime import generate_chat_turn
+from chat_runtime import HistoryChat, generate_chat_turn
 from dialogue_protocol import State, state_text
 from inference import Prediction
 class Model:
@@ -199,6 +316,15 @@ for style in ('plain', 'chatml'):
     model.style = style
     result = generate_chat_turn(model, [], 'Hi!')
     assert result['status'] == 'completed' and result['closed']
+class DirectModel:
+    task = 'history'
+    def __call__(self, request):
+        assert request.task == 'history'
+        assert request.state is None and request.action is None and not request.session
+        return Prediction('Hello!')
+assert HistoryChat(DirectModel()).reply([{'role': 'user', 'content': 'Hi!'}]) == 'Hello!'
+result = generate_chat_turn(DirectModel(), [], 'Hi!')
+assert result['response'] == 'Hello!' and not result['closed'] and 'state' not in result
 for name in ('torch', 'transformers', 'django', 'accelerate', 'data', 'generator', 'compile_sft',
              'trainer', 'benchmark', 'experiment_config', 'job_runtime'):
     assert name not in sys.modules, name
@@ -241,6 +367,22 @@ print('portable OK')
                     main(['--model', directory, '--device', 'cuda:0', '--max-new-tokens', '256'])
                     load.assert_called_once_with(directory, device='cuda:0', local_files_only=True, max_new_tokens=256)
                     self.assertEqual(model.requests, [])
+
+    def test_history_cli_loads_once_and_keeps_only_successful_replies_until_reset(self):
+        model = HistoryPredictor('Bye!', Prediction('Incomplete', stopped=False), 'Still here.', 'Fresh reply.')
+        output, errors = io.StringIO(), io.StringIO()
+        with TemporaryDirectory() as directory, patch('chat_runtime.HFPredictor', return_value=model) as load, \
+                patch('builtins.input', side_effect=['Bye', 'fail', 'retry', '/reset', 'Hi!', '/exit']), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            main(['--model', directory])
+            load.assert_called_once()
+        self.assertIn('Fresh reply.', output.getvalue())
+        self.assertIn('EOS', errors.getvalue())
+        self.assertNotIn('CLOSE', output.getvalue())
+        self.assertEqual(model.requests[2].history, [
+            {'role': 'user', 'content': 'Bye'}, {'role': 'assistant', 'content': 'Bye!'},
+            {'role': 'user', 'content': 'retry'}])
+        self.assertEqual(model.requests[3].history, [{'role': 'user', 'content': 'Hi!'}])
 
     def test_cli_missing_dependencies_and_invalid_arguments_are_actionable(self):
         with TemporaryDirectory() as directory:
