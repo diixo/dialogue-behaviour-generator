@@ -1,0 +1,17 @@
+{% extends 'app_main/base.html' %}
+{% block content %}
+<a class="small" href="{% url 'app_main:report_detail' run.id %}">← Вернуться к отчёту</a>
+<section class="panel p-4 mt-3">
+  <h2 class="h5">Удалить бенчмарк «{{ run.name }}»?</h2>
+  <p class="text-secondary">{{ run.evaluation.chain_label }} · {{ run.evaluation.context_label }} · {{ run.config.splits|join:', ' }}</p>
+  <p>Отчёт и его предсказания будут удалены без возможности восстановления через UI.</p>
+  <ul>{% for file in files %}<li><code>{{ file.name }}</code></li>{% endfor %}</ul>
+  <p class="small text-secondary">История запуска и журнал останутся в очереди задач. Модели, датасеты и другие файлы сохранятся.</p>
+  {% if deletion_error %}<div class="alert alert-warning" role="alert">{{ deletion_error }}</div>{% endif %}
+  <form method="post" action="{% url 'app_main:delete_report' run.id %}" class="d-flex gap-2">
+    {% csrf_token %}
+    <button class="btn btn-danger" type="submit" {% if deletion_error %}disabled{% endif %}>Удалить бенчмарк</button>
+    <a class="btn btn-light" href="{% url 'app_main:report_detail' run.id %}">Отмена</a>
+  </form>
+</section>
+{% endblock %}

@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 from . import job_views
 from . import chat_views
+from . import report_views
 
 app_name = "app_main"
 
@@ -28,5 +29,6 @@ urlpatterns = [
     path("benchmarks/", views.reports, name="reports"),
     path("benchmarks/compare/", views.compare, name="compare"),
     path("benchmarks/<str:identifier>/", views.report_detail, name="report_detail"),
+    path("benchmarks/<str:identifier>/delete/", report_views.delete_report, name="delete_report"),
     path("benchmarks/<str:identifier>/predictions/<int:position>/", views.prediction, name="prediction"),
 ]
