@@ -2,73 +2,11 @@
 
 import argparse
 import json
-import re
 from pathlib import Path
 
-PERSONA = (
-    "You are a friendly, curious and respectful conversational assistant. "
-    "Follow the user's lead. Do not repeat answered questions. "
-    "Respect refusals and requests to end."
-)
-VIEWS = ('policy', 'response', 'history', 'extraction')
+from dialogue_protocol import PERSONA, VIEWS, build_messages, parse_action, serialize_action
+
 SPLITS = ('train', 'validation', 'test')
-
-
-def serialize_action(action):
-    return action['type'] + (f"({action['target']})" if action.get('target') else '')
-
-
-def parse_action(text):
-    """Convert a decoded policy completion into the action consumed by response."""
-    match = re.fullmatch(r'([A-Z_]+)(?:\(([a-z_]+)\))?', text.strip())
-    if match is None:
-        raise ValueError(f'Invalid dialogue action: {text!r}')
-    kind, target = match.groups()
-    slots = {'time_of_day', 'activity', 'mood'}
-    topics = {'books', 'work', 'music', 'relaxing', 'python'}
-    allowed = {'ASK': slots, 'CLARIFY': slots, 'FOLLOW_UP': topics, 'SWITCH': topics,
-               'ANSWER': {None}, 'ACK': {None}, 'CLOSE': {None}}
-    if kind not in allowed or target not in allowed[kind]:
-        raise ValueError(f'Invalid dialogue action: {text!r}')
-    return {'type': kind, 'target': target}
-
-
-def build_messages(history, view, *, state=None, action=None):
-    """Build training or inference inputs using observed/predicted state and action.
-
-    For extraction, history includes the latest user message and state is the memory
-    before observing that message (empty for the first user message, otherwise
-    after committing the preceding assistant action).
-    For policy/response, pass the state returned by extraction. No targets are read.
-    """
-    if view not in VIEWS:
-        raise ValueError(f'Unsupported view: {view}')
-    if view != 'history' and state is None:
-        raise ValueError(f'{view} requires a dialogue state')
-    if view == 'policy':
-        system = PERSONA + ' Predict the next dialogue action using the state and conversation.'
-    elif view == 'response':
-        if action is None:
-            raise ValueError('response requires a dialogue action')
-        if isinstance(action, str):
-            action = parse_action(action)
-        system = PERSONA + ' Write the next assistant message for this dialogue action: '
-        system += serialize_action(action) + '.'
-    elif view == 'history':
-        system = PERSONA
-    else:
-        system = (
-            'Read the latest user message and update the supplied dialogue state. '
-            'Return a JSON object with observation and state. '
-            'The observation contains reaction, facts, new_topic, refused, user_question and exit. '
-            'The state contains all fields of the supplied state with accumulated known facts, '
-            'slot statuses, question attempts, topic, used follow-ups and dialogue flags. '
-            'Preserve previous facts and refusals; do not invent unobserved information.'
-        )
-    if view != 'history':
-        label = 'State before the latest user message' if view == 'extraction' else 'Current dialogue state'
-        system += f'\n{label}: ' + json.dumps(state, ensure_ascii=False, sort_keys=True)
-    return [{'role': 'system', 'content': system}] + [dict(message) for message in history]
 
 
 def compile_row(row, view):

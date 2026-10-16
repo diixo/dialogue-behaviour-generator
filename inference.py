@@ -4,58 +4,9 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
-from data import SEGMENTS, encode, task_messages, ubar_header
+from dialogue_protocol import (SEGMENTS, encode, task_messages, ubar_header,
+                               parse_state, parse_extraction, validate_state)
 from dialogue_format import get_format
-from generator import State, SLOTS, USER_VALUES, FOLLOWUP
-from experiment_config import required_stages
-
-REACTIONS = {'DIRECT_ANSWER', 'MULTI_FACT', 'REFUSAL', 'NON_ANSWER', 'COUNTER_QUESTION',
-             'TOPIC_SHIFT', 'EXIT', 'ACKNOWLEDGEMENT', 'DIRECT_FOLLOWUP', 'NO_TURN',
-             'GREETING', 'INFORM', 'QUESTION'}
-
-
-def validate_state(state):
-    def require(condition):
-        if not condition:
-            raise ValueError('Invalid dialogue state schema or value')
-    require(isinstance(state, dict) and set(state) == set(State().snapshot()))
-    for key in ('known', 'statuses', 'attempts'):
-        require(isinstance(state[key], dict) and set(state[key]) == set(SLOTS))
-    for slot in SLOTS:
-        require(state['known'][slot] in [None] + [item[0] for item in USER_VALUES[slot]])
-        require(state['statuses'][slot] in ('unknown', 'pending', 'known', 'declined', 'ambiguous', 'skipped'))
-        require(type(state['attempts'][slot]) is int and state['attempts'][slot] >= 0)
-    require(isinstance(state['asked'], list) and all(slot in SLOTS for slot in state['asked']))
-    require(state['pending'] is None or state['pending'] in SLOTS)
-    require(state['topic'] in ('daily_routine', *FOLLOWUP))
-    require(isinstance(state['followup_used'], list) and
-            all(topic in FOLLOWUP for topic in state['followup_used']))
-    require(type(state['wants_exit']) is bool and type(state['user_question_pending']) is bool)
-    require(state['phase'] in ('opening', 'exploration', 'closed'))
-    require(state['last_action'] in (None, 'ASK', 'CLARIFY', 'FOLLOW_UP', 'SWITCH', 'ANSWER', 'ACK', 'CLOSE'))
-    return state
-
-
-def parse_state(text):
-    return validate_state(json.loads(text))
-
-
-def parse_extraction(text):
-    value = json.loads(text)
-    if not isinstance(value, dict) or set(value) != {'observation', 'state'}:
-        raise ValueError('Expected observation and state')
-    validate_state(value['state'])
-    obs = value['observation']
-    if not isinstance(obs, dict) or set(obs) != {'reaction', 'facts', 'new_topic', 'refused', 'user_question', 'exit'}:
-        raise ValueError('Invalid observation schema')
-    if (obs['reaction'] not in REACTIONS or not isinstance(obs['facts'], dict) or
-            obs['refused'] not in (None, *SLOTS) or obs['new_topic'] not in (None, *FOLLOWUP) or
-            type(obs['exit']) is not bool or type(obs['user_question']) is not bool):
-        raise ValueError('Invalid observation value')
-    for slot, fact in obs['facts'].items():
-        if slot not in SLOTS or fact not in [item[0] for item in USER_VALUES[slot]]:
-            raise ValueError('Invalid observed fact')
-    return value
 
 
 @dataclass
@@ -177,8 +128,9 @@ class PredictorRouter:
                                               'context_limit': model.max_length}}
                          for task, model in self.models.items()}
 
-    def validate_mode(self, mode):
-        for task in required_stages(mode):
+    def validate_chain(self, chain):
+        from experiment_config import required_stages
+        for task in required_stages(chain):
             if task not in self.models:
                 raise ValueError(f'No checkpoint configured for {task}')
             trained = self.models[task].task

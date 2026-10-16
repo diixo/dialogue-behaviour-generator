@@ -67,7 +67,6 @@ def render_chat(request, chat, form=None):
     active = next((job for job in turns if job.active), None)
     for job in turns:
         job.state_json = pretty(job.result.get('state'))
-        job.memory_json = pretty(job.result.get('memory'))
         job.action_json = pretty(job.result.get('action'))
     form = form or MessageForm(initial={'previous_job': last.pk if last else None})
     return page(request, 'chat', 'Диалог с моделью', 'chats', chat=chat, turns=turns, form=form,

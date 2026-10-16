@@ -9,11 +9,11 @@ import argparse
 import json
 import random
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SLOTS = ('time_of_day', 'activity', 'mood')
+from dialogue_protocol import SLOTS, State
 
 USER_VALUES = {
     'time_of_day': [
@@ -55,38 +55,6 @@ USER_FOLLOWUP = {
 }
 ACKS = ['That sounds nice.', 'Thanks for sharing.', 'I see.']
 CLOSES = ['Enjoy the rest of your day!', 'Thanks for chatting. Take care!', 'Have a good one!']
-
-@dataclass
-class State:
-    known: dict = field(default_factory=lambda: {k: None for k in SLOTS})
-    statuses: dict = field(default_factory=lambda: {k: 'unknown' for k in SLOTS})
-    asked: list = field(default_factory=list)
-    pending: Optional[str] = None
-    attempts: dict = field(default_factory=lambda: {k: 0 for k in SLOTS})
-    topic: str = 'daily_routine'
-    followup_used: set = field(default_factory=set)
-    user_question_pending: bool = False
-    wants_exit: bool = False
-    phase: str = 'opening'
-    last_action: Optional[str] = None
-
-    @classmethod
-    def from_snapshot(cls, snapshot):
-        """Restore observable dialogue memory, including mutable collection types."""
-        if set(snapshot) != set(cls.__dataclass_fields__):
-            raise ValueError('Expected a complete dialogue state snapshot')
-        values = deepcopy(snapshot)
-        values['followup_used'] = set(values['followup_used'])
-        return cls(**values)
-
-    def snapshot(self):
-        return {'known': dict(self.known), 'statuses': dict(self.statuses),
-                'asked': list(self.asked), 'pending': self.pending,
-                'attempts': dict(self.attempts), 'topic':self.topic,
-                'followup_used': sorted(self.followup_used),
-                'user_question_pending': self.user_question_pending,
-                'wants_exit': self.wants_exit, 'phase': self.phase,
-                'last_action': self.last_action}
 
 @dataclass(frozen=True)
 class Action:

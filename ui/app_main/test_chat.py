@@ -46,7 +46,7 @@ class ChatTests(TestCase):
     def complete(self, job, response='Model reply', closed=False):
         job.status = Job.Status.COMPLETED
         job.result = {'status': 'completed', 'response': response, 'message': job.config.get('message'),
-                      'state': {'marker': 'predicted'}, 'memory': {'marker': 'committed'},
+                      'state': {'marker': 'predicted'},
                       'action': {'type': 'CLOSE' if closed else 'ACK', 'target': None},
                       'closed': closed, 'block': 'generated-block', 'stages': {}}
         job.save(update_fields=['status', 'result'])
@@ -92,6 +92,10 @@ class ChatTests(TestCase):
         self.assertEqual(self.send(chat, first, identifier=identifier).status_code, 302)
         second = chat.jobs.get(pk=identifier)
         self.assertEqual(second.config['turns'], [first.result])
+        page = self.client.get(reverse('app_main:chat', args=[chat.pk]))
+        self.assertContains(page, 'B · предсказанное состояние')
+        self.assertContains(page, 'A · предсказанное действие')
+        self.assertNotContains(page, 'Память после действия')
         self.assertEqual(second.config['message'], 'Hello')
         self.assertEqual(self.send(chat, first).status_code, 200)
         self.assertEqual(chat.jobs.count(), 2)

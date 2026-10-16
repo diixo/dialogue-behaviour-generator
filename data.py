@@ -12,18 +12,14 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
-from compile_sft import PERSONA, build_messages, compile_row, serialize_action
+from compile_sft import compile_row, serialize_action
 from dialogue_format import get_format
+from dialogue_protocol import (SEGMENTS, SPECIAL_TOKENS, encode, segment, state_text,
+                               task_messages, ubar_header, ubar_user)
 from generator import compile_views
 from experiment_config import TRAIN_TASKS
 
 TASKS = TRAIN_TASKS
-SEGMENTS = {
-    'dst': ('<|state|>', '<|end_state|>'),
-    'policy': ('<|action|>', '<|end_action|>'),
-    'response': ('<|response|>', '<|end_response|>'),
-}
-SPECIAL_TOKENS = [token for pair in SEGMENTS.values() for token in pair]
 
 
 def load_json(path):
@@ -58,23 +54,6 @@ def corpus_hash(episodes):
     return hashlib.sha256(json.dumps(episodes, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def state_text(state):
-    return json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
-
-
-def task_messages(task, history, state=None, action=None):
-    if task != 'dst':
-        return build_messages(history, task, state=state, action=action)
-    if state is None:
-        raise ValueError('dst requires state before the latest user message')
-    instruction = (
-        'Update the dialogue state using the latest user message and conversation. '
-        'Return only the complete state as a JSON object. Preserve previous facts and refusals; '
-        'do not invent unobserved information. State before the latest user message: '
-    )
-    return [{'role': 'system', 'content': instruction + state_text(state)}] + list(history)
-
-
 def task_records(episodes, task):
     view = 'extraction' if task == 'dst' else task
     for episode in episodes:
@@ -86,25 +65,6 @@ def task_records(episodes, task):
                        'completion': state_text(row['target_state'])}
             else:
                 yield compile_row(row, view)
-
-
-def ubar_header(style='plain'):
-    fmt = get_format(style)
-    instruction = PERSONA + ' Track dialogue state, choose an action, and write a response in that order.'
-    return fmt.message_template.format(role='system', content=instruction)
-
-
-def ubar_user(text, style='plain'):
-    return get_format(style).message_template.format(role='user', content=text)
-
-
-def segment(task, text):
-    start, end = SEGMENTS[task]
-    return start + text + end
-
-
-def encode(tokenizer, text):
-    return tokenizer.encode(text, add_special_tokens=False)
 
 
 def require_eos_token_id(tokenizer):
