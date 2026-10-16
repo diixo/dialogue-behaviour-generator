@@ -17,7 +17,8 @@ The UI browses episodes, linked SFT examples, training artifacts and benchmark e
 It reads `data/`, `outputs/` and `runs/`; paths are configured in `ui/ui/settings.py`.
 The UI queues training/evaluation, shows live progress and supports checkpoint stop/resume.
 Chat with trained UBAR or History models through the same worker.
-`UbarChat` predicts state → action → reply; `HistoryChat` generates a reply from conversation history.
+`UbarChat` predicts state → action → reply from the last state/action and a new user message;
+`HistoryChat` generates a reply from conversation history.
 
 CLI: `python chat_runtime.py --model runs/history` (or a UBAR checkpoint).
 Commands: `/reset`, `/exit`; use `--device cuda` for GPU. Only `torch` and `transformers`
@@ -57,7 +58,7 @@ Generation and SFT export themselves require only the Python standard library.
 
 Training tasks:
 
-Во всех режимах вход включает инструкцию, а переписка — текущее сообщение пользователя.
+Во всех режимах вход включает инструкцию и текущее сообщение пользователя.
 
 | **Task** | **Input** | **Output** | **Status** |
 | -------- | --------- | ---------- | ---------- |
@@ -66,7 +67,105 @@ Training tasks:
 | `policy` | Переписка + обновлённое состояние | Следующее действие, например `ASK(mood)` | Обучение и бенчмарк реализованы |
 | `response` | Переписка + обновлённое состояние + действие | Текст ответа | Обучение и бенчмарк реализованы |
 | `history` | Переписка | Текст ответа | Обучение, бенчмарк и чат реализованы |
-| `ubar`    | Переписка + предыдущие состояния и действия | Состояние → действие → ответ | Обучение, бенчмарк и чат реализованы |
+| `ubar`    | Последнее состояние и действие + новое сообщение пользователя | Состояние → действие → ответ | Обучение, бенчмарк и чат реализованы |
+
+<details>
+<summary>Шаблоны входа и выхода для каждого task (формат plain)</summary>
+
+В первых пяти шаблонах вход заканчивается на последнем `assistant: `; далее
+показана обучаемая цель. `<EOS>` обозначает нативный токен завершения, добавляемый
+при токенизации, а не строку для записи в JSON. Формат выбирается через `--style`.
+
+| Подстановка | Содержание |
+| --- | --- |
+| `{persona}` | Общая инструкция поведения `PERSONA` из [dialogue_protocol.py](dialogue_protocol.py) |
+| `{history_messages}` | Предыдущая переписка в виде `user: ...` / `assistant: ...`, каждый элемент с переводом строки; на первом ходе пустая |
+| `{user_message}` | Текущее сообщение пользователя; в `{history_messages}` его ещё нет |
+| `{state_before_json}` | Полное состояние до текущего сообщения пользователя, уже учитывающее предыдущее действие ассистента; на первом ходе пустой снимок |
+| `{state_json}` | Полное обновлённое состояние после текущего сообщения пользователя, до ответа ассистента |
+| `{observation_json}` | Объект с полями `reaction`, `facts`, `new_topic`, `refused`, `user_question`, `exit` |
+| `{action}` | Действие в строковом формате, например `ASK(mood)` или `CLOSE` |
+| `{response}` | Текст следующей реплики ассистента |
+| `{previous_state_json}` | Для UBAR: последнее предсказанное состояние до предыдущего действия ассистента; на первом ходе пустой снимок |
+| `{previous_action}` | Для UBAR: последнее выбранное действие, например `ASK(activity)`; на первом ходе `NONE` |
+
+**`dst` — только состояние.**
+
+```text
+system: Update the dialogue state using the latest user message and conversation. Return only the complete state as a JSON object. Preserve previous facts and refusals; do not invent unobserved information. State before the latest user message: {state_before_json}
+{history_messages}user: {user_message}
+assistant: {state_json}<EOS>
+```
+
+**`extraction` — наблюдение и состояние.**
+
+```text
+system: Read the latest user message and update the supplied dialogue state. Return a JSON object with observation and state. The observation contains reaction, facts, new_topic, refused, user_question and exit. The state contains all fields of the supplied state with accumulated known facts, slot statuses, question attempts, topic, used follow-ups and dialogue flags. Preserve previous facts and refusals; do not invent unobserved information.
+State before the latest user message: {state_before_json}
+{history_messages}user: {user_message}
+assistant: {"observation": {observation_json}, "state": {state_json}}<EOS>
+```
+
+**`policy` — действие по обновлённому состоянию.**
+
+```text
+system: {persona} Predict the next dialogue action using the state and conversation.
+Current dialogue state: {state_json}
+{history_messages}user: {user_message}
+assistant: {action}<EOS>
+```
+
+**`response` — ответ по обновлённому состоянию и заданному действию.**
+
+```text
+system: {persona} Write the next assistant message for this dialogue action: {action}.
+Current dialogue state: {state_json}
+{history_messages}user: {user_message}
+assistant: {response}<EOS>
+```
+
+**`history` — прямой ответ по переписке.**
+
+```text
+system: {persona}
+{history_messages}user: {user_message}
+assistant: {response}<EOS>
+```
+
+**`ubar` — последовательность состояния, действия и ответа.**
+
+```text
+system: {persona} Track dialogue state, choose an action, and write a response in that order. The previous state was saved before the last assistant action. Account for that action once, then process the new user message. Preserve known facts and refusals; do not invent unobserved information.
+Previous state: {previous_state_json}
+Last assistant action: {previous_action}
+user: {user_message}
+<|state|>{state_json}<|end_state|><|action|>{action}<|end_action|><|response|>{response}<|end_response|><EOS>
+```
+
+В UBAR обучаемая цель каждого хода — три сегмента после пользовательского
+сообщения. В чате они генерируются последовательно, до соответствующего
+`<|end_...|>`; префикс `assistant: ` не используется. Нативный EOS добавляется
+в конце каждого обучающего примера — одного хода; разговор завершается по `CLOSE`.
+Маркеры UBAR добавляются при сборке последовательности, а не в исходные JSON/JSONL.
+Старые реплики и снимки состояния модели не передаются. Новый формат отмечен
+как `ubar_context: memory_v1` в `experiment.json`; прежние UBAR-модели нужно переобучить.
+
+На обучении состояния и действия берутся из разметки; при оценке всей цепочки
+и в чате — из предсказаний. Полная схема состояния и границы памяти описаны
+в [FAQ.md](FAQ.md).
+
+```text
+Вход:
+  Последнее состояние памяти
+  Новое сообщение пользователя
+
+Выход:
+  Обновлённое состояние
+  Выбранное действие
+  Ответ пользователю
+```
+
+</details>
 
 Benchmark settings: `--chain` selects stages (`full` = DST → policy → response),
 `--context reference|predicted` selects prior history/memory, and

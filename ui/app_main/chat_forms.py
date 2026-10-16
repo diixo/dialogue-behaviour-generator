@@ -3,6 +3,7 @@
 import uuid
 
 from django import forms
+from dialogue_protocol import UBAR_CONTEXT
 
 from . import jobs
 
@@ -26,6 +27,15 @@ class ChatForm(forms.Form):
         return {'model': str(item['path']), 'model_label': item['label'], 'task': item['task'],
                 'trained_dialogue_start': item['run']['config'].get('dialogue_start', 'assistant'),
                 'device': self.cleaned_data['device'], 'max_new_tokens': self.cleaned_data['max_new_tokens']}
+
+    def clean_model(self):
+        key = self.cleaned_data['model']
+        item = self.catalog[key]
+        if item['task'] == 'ubar' and item['run']['config'].get('ubar_context') != UBAR_CONTEXT:
+            raise forms.ValidationError(
+                'Эта UBAR-модель обучена на прежнем формате контекста. '
+                'Обучите новый эксперимент UBAR с памятью memory_v1.')
+        return key
 
 
 class MessageForm(forms.Form):

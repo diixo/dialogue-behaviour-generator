@@ -26,6 +26,7 @@ SEGMENTS = {
     'response': ('<|response|>', '<|end_response|>'),
 }
 SPECIAL_TOKENS = [token for pair in SEGMENTS.values() for token in pair]
+UBAR_CONTEXT = 'memory_v1'
 
 PERSONA = (
     "You are a friendly, curious and respectful conversational assistant. "
@@ -145,14 +146,31 @@ def task_messages(task, history, state=None, action=None):
     return [{'role': 'system', 'content': instruction + state_text(state)}] + list(history)
 
 
-def ubar_header(style='plain'):
+def ubar_header(style='plain', previous_state=None, previous_action=None):
     fmt = get_format(style)
-    instruction = PERSONA + ' Track dialogue state, choose an action, and write a response in that order.'
+    state = State().snapshot() if previous_state is None else validate_state(previous_state)
+    action = 'NONE' if previous_action is None else serialize_action(previous_action)
+    if previous_action is not None:
+        parse_action(action)
+    instruction = (
+        PERSONA + ' Track dialogue state, choose an action, and write a response in that order. '
+        'The previous state was saved before the last assistant action. '
+        'Account for that action once, then process the new user message. '
+        'Preserve known facts and refusals; do not invent unobserved information.'
+        '\nPrevious state: ' + state_text(state) + '\nLast assistant action: ' + action
+    )
     return fmt.message_template.format(role='system', content=instruction)
 
 
 def ubar_user(text, style='plain'):
     return get_format(style).message_template.format(role='user', content=text)
+
+
+def ubar_prompt(message, previous_state, previous_action=None, style='plain'):
+    """One memory snapshot and the new user message; never dialogue history."""
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError('UBAR requires a nonempty user message')
+    return ubar_header(style, previous_state, previous_action) + ubar_user(message, style)
 
 
 def segment(task, text):

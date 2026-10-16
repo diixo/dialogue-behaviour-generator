@@ -12,7 +12,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from chat_runtime import HistoryChat, UbarChat, create_chat, generate_chat_turn, main
-from dialogue_protocol import State, segment, state_text, ubar_user
+from dialogue_protocol import State, segment, state_text
 from inference import Prediction
 from job_runtime import JobCancelled, JobControl
 from run_job import execute
@@ -52,7 +52,9 @@ class ChatRuntimeTests(TestCase):
         self.assertEqual([r.task for r in model.requests], ['dst', 'policy', 'response'])
         self.assertEqual(model.requests[0].history, [{'role': 'user', 'content': message}])
         self.assertEqual(model.requests[0].state, State().snapshot())
-        self.assertEqual(model.requests[0].session, [ubar_user(message)])
+        self.assertEqual(model.requests[0].previous_state, State().snapshot())
+        self.assertIsNone(model.requests[0].previous_action)
+        self.assertEqual(model.requests[0].prefix, '')
         self.assertEqual(model.requests[1].state, state)
         self.assertEqual(first['state'], state)
         self.assertNotIn('memory', first)
@@ -60,7 +62,7 @@ class ChatRuntimeTests(TestCase):
             with self.assertRaises(ValueError):
                 generate_chat_turn(ScriptedPredictor(), [], message)
 
-    def test_model_history_and_memory_carry_forward_without_reference_data(self):
+    def test_only_latest_state_and_action_carry_forward_without_history(self):
         first = self.opening()
         before = deepcopy(first)
         self.assertEqual(first['status'], 'completed')
@@ -74,13 +76,13 @@ class ChatRuntimeTests(TestCase):
         message = 'It is evening here, after a long day.'
         second = generate_chat_turn(model, [first], message)
         self.assertEqual([request.task for request in model.requests], ['dst', 'policy', 'response'])
-        self.assertEqual(model.requests[0].history, [
-            {'role': 'user', 'content': first['message']},
-            {'role': 'assistant', 'content': first['response']}, {'role': 'user', 'content': message}])
+        self.assertEqual(model.requests[0].history, [{'role': 'user', 'content': message}])
         self.assertEqual(model.requests[0].state, first['state'])
-        self.assertEqual(model.requests[0].session, [first['block'], ubar_user(message)])
+        self.assertEqual(model.requests[0].previous_state, first['state'])
+        self.assertEqual(model.requests[0].previous_action, first['action'])
+        self.assertEqual(model.requests[0].prefix, '')
         self.assertEqual(model.requests[1].state, state)
-        self.assertIn(segment('dst', state_text(state)), model.requests[1].session[-1])
+        self.assertEqual(segment('dst', state_text(state)), model.requests[1].prefix)
         self.assertEqual(second['state'], state)
         self.assertEqual(first, before)
 
@@ -101,13 +103,12 @@ class ChatRuntimeTests(TestCase):
         response = '  A model reply with its own formatting.\n'
         model = ScriptedPredictor(state_output, action_output, response)
         first = generate_chat_turn(model, [], 'Hi!')
-        expected = ubar_user('Hi!') + segment('dst', state_output)
-        self.assertEqual(model.requests[1].session, [expected])
+        expected = segment('dst', state_output)
+        self.assertEqual(model.requests[1].prefix, expected)
         expected += segment('policy', action_output)
-        self.assertEqual(model.requests[2].session, [expected])
+        self.assertEqual(model.requests[2].prefix, expected)
         self.assertEqual(model.requests[2].action, {'type': 'ASK', 'target': 'activity'})
-        expected += segment('response', response)
-        self.assertEqual(first['block'], expected)
+        self.assertNotIn('block', first)
         self.assertEqual(first['response'], response)
         # Older saved chats may contain a state modified by commit_action.
         first['memory'] = deepcopy(state)
@@ -117,7 +118,9 @@ class ChatRuntimeTests(TestCase):
         model = ScriptedPredictor(state_output, 'ACK', 'Got it.')
         result = generate_chat_turn(model, [first], 'Reading.')
         self.assertEqual(model.requests[0].state, state)
-        self.assertEqual(model.requests[0].session, [expected, ubar_user('Reading.')])
+        self.assertEqual(model.requests[0].previous_state, state)
+        self.assertEqual(model.requests[0].previous_action, {'type': 'ASK', 'target': 'activity'})
+        self.assertEqual(model.requests[0].prefix, '')
         self.assertEqual(result['state'], state)
         self.assertEqual(first, before)
 
@@ -199,7 +202,9 @@ class HistoryChatTests(TestCase):
         self.assertEqual(request.history, history)
         self.assertIsNone(request.state)
         self.assertIsNone(request.action)
-        self.assertEqual(request.session, [])
+        self.assertEqual(request.prefix, '')
+        self.assertIsNone(request.previous_state)
+        self.assertIsNone(request.previous_action)
 
     def test_turns_keep_own_replies_without_state_and_eos_does_not_close_chat(self):
         model = HistoryPredictor('Bye!', 'Welcome back.')
@@ -320,7 +325,8 @@ class DirectModel:
     task = 'history'
     def __call__(self, request):
         assert request.task == 'history'
-        assert request.state is None and request.action is None and not request.session
+        assert request.state is None and request.action is None and not request.prefix
+        assert request.previous_state is None and request.previous_action is None
         return Prediction('Hello!')
 assert HistoryChat(DirectModel()).reply([{'role': 'user', 'content': 'Hi!'}]) == 'Hello!'
 result = generate_chat_turn(DirectModel(), [], 'Hi!')
@@ -354,7 +360,9 @@ print('portable OK')
         self.assertTrue(errors.getvalue())
         self.assertEqual(len(model.requests), 7)
         self.assertEqual(model.requests[4].history, [{'role': 'user', 'content': 'retry'}])
-        self.assertEqual(model.requests[4].session, [ubar_user('retry')])
+        self.assertEqual(model.requests[4].previous_state, State().snapshot())
+        self.assertIsNone(model.requests[4].previous_action)
+        self.assertEqual(model.requests[4].prefix, '')
         self.assertEqual(model.requests[4].state, State().snapshot())
 
     def test_cli_handles_eof_interrupt_and_device_options(self):

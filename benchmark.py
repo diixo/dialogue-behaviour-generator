@@ -20,12 +20,14 @@ Template metrics are finite-corpus proxies, not semantic scores for paraphrases.
 import argparse
 from collections import Counter, defaultdict
 from copy import deepcopy
+from dataclasses import replace
 import json
 from pathlib import Path
 import random
 
 from compile_sft import parse_action, serialize_action
-from data import corpus_hash, read_episodes, segment, state_text, ubar_user
+from data import corpus_hash, read_episodes, segment
+from dialogue_protocol import state_text
 from generator import (ACKS, ASK_TEXT, CLOSES, FOLLOWUP, SLOTS, Action, State,
                        UserSimulator, commit_action, compile_views, observe,
                        select_action, write_jsonl)
@@ -64,9 +66,20 @@ def new_record(episode, turn, reaction, expected_action):
             'stages': {}, 'metrics': {}, 'errors': []}
 
 
+def uses_ubar(predictor, task):
+    model = getattr(predictor, 'models', {}).get(task, predictor)
+    return getattr(model, 'task', None) == 'ubar'
+
+
 def predict(predictor, request, record, parser):
     task = request.task
+    if uses_ubar(predictor, task):
+        request = replace(request, history=[request.history[-1]],
+                          state=request.previous_state if task == 'dst' else request.state)
     entry = {'input': deepcopy({'history': request.history, 'state': request.state, 'action': request.action})}
+    if uses_ubar(predictor, task):
+        entry['input'].update(previous_state=deepcopy(request.previous_state),
+                              previous_action=deepcopy(request.previous_action), prefix=request.prefix)
     record['stages'][task] = entry
     metrics = record['metrics']
     metrics[f'{task}.available'] = 1
@@ -164,12 +177,12 @@ def score_response(record, text, expected_action, conditioned_action, reference=
             record['errors'].append('response.wrong_action_template')
 
 
-def replay(episodes, predictor, chain, style, progress=None):
+def replay(episodes, predictor, chain, progress=None):
     records = []
     for episode_number, episode in enumerate(episodes):
         views = compile_views(episode)
         extractions = {row['next_turn']: row for row in views['extraction']}
-        previous_blocks = []
+        previous_state, previous_action = State().snapshot(), None
         for turn, policy_row in zip(episode['turns'], views['policy']):
             if progress:
                 progress(completed_episodes=episode_number, total_episodes=len(episodes),
@@ -177,19 +190,16 @@ def replay(episodes, predictor, chain, style, progress=None):
             index = turn['index']
             gold_state, gold_action = policy_row['state'], policy_row['target_action']
             history = policy_row['history']
-            user_block = ubar_user(turn['user'], style)
-            gold_block = (user_block + segment('dst', state_text(gold_state)) +
-                          segment('policy', serialize_action(gold_action)) + segment('response', turn['assistant']))
             source = extractions[index]
             reaction = source['target_observation']['reaction']
             record = new_record(episode, index, reaction, gold_action)
             record['reference'] = {'state': gold_state, 'action': gold_action, 'response': turn['assistant']}
             state, action, response = gold_state, gold_action, None
-            current = user_block
+            current = ''
             if chain in ('dst', 'extraction', 'full'):
                 task = 'extraction' if chain == 'extraction' else 'dst'
                 result = predict(predictor, Request(task, history, source['state_before'],
-                                 session=previous_blocks + [current]), record,
+                                 previous_state=previous_state, previous_action=previous_action), record,
                                  parse_extraction if task == 'extraction' else parse_state)
                 state = result['state'] if result is not None and task == 'extraction' else result
                 score_state(record, state, gold_state)
@@ -205,17 +215,24 @@ def replay(episodes, predictor, chain, style, progress=None):
                     if obs is not None and obs != source['target_observation']:
                         record['errors'].append('observation.mismatch')
             if state is not None:
-                current += segment('dst', state_text(state))
+                # Preserve generated text exactly as chat does. Reference stages
+                # use the canonical serialization only when that stage is bypassed.
+                state_output = (record['stages']['dst']['text'] if 'dst' in record['stages']
+                                else state_text(state))
+                current += segment('dst', state_output)
             if chain in ('policy', 'policy_response', 'full'):
                 if state is None:
                     blocked(record, 'policy')
                     action = None
                 else:
                     action = predict(predictor, Request('policy', history, state,
-                                     session=previous_blocks + [current]), record, parse_action)
+                                     previous_state=previous_state, previous_action=previous_action,
+                                     prefix=current), record, parse_action)
                 score_action(record, action, gold_action, gold_state)
             if action is not None:
-                current += segment('policy', serialize_action(action))
+                action_output = (record['stages']['policy']['text'] if 'policy' in record['stages']
+                                 else serialize_action(action))
+                current += segment('policy', action_output)
             if chain in ('response', 'history', 'policy_response', 'full'):
                 task = 'history' if chain == 'history' else 'response'
                 if action is None or state is None:
@@ -223,47 +240,49 @@ def replay(episodes, predictor, chain, style, progress=None):
                 else:
                     response = predict(predictor, Request(task, history,
                         None if task == 'history' else state, None if task == 'history' else action,
-                        [] if task == 'history' else previous_blocks + [current]), record, parse_response)
+                        None if task == 'history' else previous_state,
+                        None if task == 'history' else previous_action,
+                        '' if task == 'history' else current), record, parse_response)
                 score_response(record, response, gold_action, action, turn['assistant'])
             records.append(record)
             # Every replay transition starts from the recorded context, even after failures.
-            previous_blocks.append(gold_block)
+            previous_state, previous_action = gold_state, gold_action
     return records, []
 
 
-def predict_chain(predictor, history, memory, previous_blocks, current, record):
+def predict_chain(predictor, history, memory, previous_state, previous_action, record):
     """Generate B/A/R using only supplied model context; references are for scoring."""
     reference = record['reference']
     state = predict(predictor, Request('dst', history, memory,
-                    session=previous_blocks + [current]), record, parse_state)
+                    previous_state=previous_state, previous_action=previous_action), record, parse_state)
     score_state(record, state, reference['state'])
     if state is None:
         blocked(record, 'policy')
         action = None
     else:
-        current += segment('dst', state_text(state))
+        current = segment('dst', record['stages']['dst']['text'])
         action = predict(predictor, Request('policy', history, state,
-                         session=previous_blocks + [current]), record, parse_action)
+                         previous_state=previous_state, previous_action=previous_action,
+                         prefix=current), record, parse_action)
     score_action(record, action, reference['action'], reference['state'])
     if action is None:
         blocked(record, 'response')
         response = None
     else:
-        current += segment('policy', serialize_action(action))
+        current += segment('policy', record['stages']['policy']['text'])
         response = predict(predictor, Request('response', history, state, action,
-                           previous_blocks + [current]), record, parse_response)
+                           previous_state, previous_action, current), record, parse_response)
     score_response(record, response, reference['action'], action, reference.get('response'))
-    if response is not None:
-        current += segment('response', response)
-    return state, action, response, current
+    return state, action, response
 
 
-def session(episodes, predictor, style, progress=None):
+def session(episodes, predictor, progress=None):
     """Fixed recorded users, generated history; unavailable remaining turns count as failures."""
     records, outcomes = [], []
     for episode_number, episode in enumerate(episodes):
         memory = State()
-        history, previous_blocks, episode_records = [], [], []
+        previous_state, previous_action = State().snapshot(), None
+        history, episode_records = [], []
         terminal, generated_turns = None, 0
         for turn in episode['turns']:
             if progress:
@@ -285,15 +304,16 @@ def session(episodes, predictor, style, progress=None):
                 score_response(record, None, expected, None, turn['assistant'])
                 continue
             history.append({'role': 'user', 'content': turn['user']})
-            state, action, response, block = predict_chain(
-                predictor, history, memory.snapshot(), previous_blocks, ubar_user(turn['user'], style), record)
+            state, action, response = predict_chain(
+                predictor, history, memory.snapshot(), previous_state, previous_action, record)
             if response is None:
                 terminal = 'invalid_generation'
                 continue
-            previous_blocks.append(block)
+            previous_state, previous_action = state, action
             history.append({'role': 'assistant', 'content': response})
             memory = State.from_snapshot(state)
-            commit_action(memory, Action(**action))
+            if not uses_ubar(predictor, 'dst'):
+                commit_action(memory, Action(**action))
             generated_turns += 1
             if action['type'] == 'CLOSE':
                 terminal = 'appropriate_close' if expected['type'] == 'CLOSE' else 'premature_close'
@@ -306,7 +326,7 @@ def session(episodes, predictor, style, progress=None):
     return records, outcomes
 
 
-def rollout(episodes, predictor, style, seed, max_turns, progress=None):
+def rollout(episodes, predictor, seed, max_turns, progress=None):
     records, outcomes = [], []
     for episode_number, episode in enumerate(episodes):
         truth, memory = State(), State()
@@ -315,8 +335,7 @@ def rollout(episodes, predictor, style, seed, max_turns, progress=None):
         # Gold observation is evaluator-only; the model receives text and empty memory.
         observe(truth, opening['observation'])
         history = [{'role': 'user', 'content': opening['user']}]
-        previous_blocks = []
-        current = ubar_user(opening['user'], style)
+        previous_state, previous_action = State().snapshot(), None
         reaction, terminal = opening['observation']['reaction'], 'horizon_limit'
         episode_records = []
         for index in range(max_turns):
@@ -327,16 +346,17 @@ def rollout(episodes, predictor, style, seed, max_turns, progress=None):
             record = new_record(episode, index, reaction, expected)
             record['reference'] = {'state': truth.snapshot(), 'action': expected}
             episode_records.append(record)
-            state, action, response, block = predict_chain(
-                predictor, history, memory.snapshot(), previous_blocks, current, record)
+            state, action, response = predict_chain(
+                predictor, history, memory.snapshot(), previous_state, previous_action, record)
             if response is None:
                 terminal = 'invalid_generation'
                 break
-            previous_blocks.append(block)
+            previous_state, previous_action = state, action
             history.append({'role': 'assistant', 'content': response})
             actual_action = Action(**action)
             memory = State.from_snapshot(state)
-            commit_action(memory, actual_action)
+            if not uses_ubar(predictor, 'dst'):
+                commit_action(memory, actual_action)
             commit_action(truth, actual_action)
             if actual_action.type == 'CLOSE':
                 terminal = 'appropriate_close' if expected['type'] == 'CLOSE' else 'premature_close'
@@ -346,7 +366,6 @@ def rollout(episodes, predictor, style, seed, max_turns, progress=None):
             history.append({'role': 'user', 'content': user})
             record['environment'] = {'user': user, 'observation': observation}
             reaction = observation['reaction']
-            current = ubar_user(user, style)
         records.extend(episode_records)
         outcomes.append({'episode_id': episode['episode_id'], 'turns': len(episode_records),
                          'terminal': terminal,
@@ -400,13 +419,12 @@ def run_benchmark(episodes, predictor, *, chain='full', context='reference', use
             raise ValueError(f'{episode["episode_id"]}: benchmark requires user-first episodes; regenerate the dataset')
         if turns[0]['state_before_user'] != State().snapshot():
             raise ValueError(f'{episode["episode_id"]}: memory before the first user message must be empty')
-    style = getattr(predictor, 'style', 'plain')
     if user_source == 'simulator':
-        records, outcomes = rollout(episodes, predictor, style, seed, max_turns, progress)
+        records, outcomes = rollout(episodes, predictor, seed, max_turns, progress)
     elif context == 'predicted':
-        records, outcomes = session(episodes, predictor, style, progress)
+        records, outcomes = session(episodes, predictor, progress)
     else:
-        records, outcomes = replay(episodes, predictor, chain, style, progress)
+        records, outcomes = replay(episodes, predictor, chain, progress)
     if progress:
         progress(completed_episodes=len(episodes), total_episodes=len(episodes), episode_id=None, turn=None)
     errors, groups, requests = summarize(records)

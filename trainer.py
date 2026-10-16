@@ -1,4 +1,4 @@
-"""Train independent task checkpoints or a UBAR session model.
+"""Train independent task checkpoints or a UBAR memory model.
 
 Examples:
   python trainer.py --task dst --output runs/dst
@@ -18,6 +18,7 @@ from pathlib import Path
 
 from data import TASKS, SPECIAL_TOKENS, collate_batch, corpus_hash, make_dataset, read_episodes
 from dialogue_format import FORMATS
+from dialogue_protocol import UBAR_CONTEXT
 from experiment_config import TRAIN_DEFAULTS
 
 
@@ -56,7 +57,7 @@ def print_dataset_summary(manifest, splits):
     for metric in next(iter(columns.values())):
         lines.append(f'{metric:<28}' + ''.join(f'{column[metric]:>16}' for column in columns.values()))
     if manifest['task'] == 'ubar':
-        lines.append('UBAR examples are session windows; input token counts include repeated context.')
+        lines.append('UBAR examples are individual turns: previous state/action + new user message.')
     lines.extend([
         'Token counts exclude batch padding; loss targets are counted after the causal shift.',
         f'Training: model={manifest["base_model"]}, epochs={manifest["epochs"]}, '
@@ -143,6 +144,8 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
         'train': dataset_stats(train_data),
         'validation': dataset_stats(validation_data)
         }
+    if task == 'ubar':
+        manifest['ubar_context'] = UBAR_CONTEXT
     if job_control is not None:
         job_control.check_stop()
         job_control.emit(phase='prepared', dataset=manifest)

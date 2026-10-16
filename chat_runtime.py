@@ -10,7 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 import sys
 
-from dialogue_protocol import State, parse_action, parse_state, segment, ubar_user
+from dialogue_protocol import State, parse_action, parse_state, segment
 from inference import HFPredictor, Request
 
 
@@ -29,7 +29,7 @@ class _Chat:
         if not message or not message.strip():
             raise ValueError('Введите сообщение пользователя, чтобы продолжить диалог.')
         history = []
-        for turn in turns:
+        for turn in (turns if self.task == 'history' else []):
             if turn['message'] is not None:
                 history.append({'role': 'user', 'content': turn['message']})
             history.append({'role': 'assistant', 'content': turn['response']})
@@ -61,19 +61,20 @@ class _Chat:
 
 
 class UbarChat(_Chat):
-    """Predict B → A → R, carrying the model's raw segments between turns."""
+    """Predict B → A → R from the latest B/A memory and the new user message."""
 
     task = 'ubar'
 
     def _generate(self, history, turns, stages, control):
-        blocks = [turn['block'] for turn in turns]
-        # Previous B stays as predicted. Prior A/R in the session let the model
-        # infer their consequences when predicting the next B.
+        # Never commit or repair predicted B: the model sees the actual last A
+        # and learns to account for its consequences when predicting the next B.
         previous_state = deepcopy(turns[-1]['state']) if turns else State().snapshot()
-        current = ubar_user(history[-1]['content'], self.predictor.style)
+        previous_action = deepcopy(turns[-1]['action']) if turns else None
+        current = ''
 
         def predict(task, state, action=None):
-            return self._predict(Request(task, history, state, action, blocks + [current]), stages, control)
+            return self._predict(Request(task, history, state, action,
+                                         previous_state, previous_action, current), stages, control)
 
         state_output = predict('dst', previous_state)
         state = parse_state(state_output)
@@ -82,9 +83,8 @@ class UbarChat(_Chat):
         action = parse_action(action_output)
         current += segment('policy', action_output)
         response = predict('response', state, action)
-        current += segment('response', response)
         return {'response': response, 'state': state, 'action': action,
-                'block': current, 'closed': action['type'] == 'CLOSE'}
+                'closed': action['type'] == 'CLOSE'}
 
 
 class HistoryChat(_Chat):

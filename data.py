@@ -1,7 +1,7 @@
 """Data loading, task/session datasets, tokenization and batch collation.
 
-Chat formatting is selected at runtime. UBAR is a project adaptation without a
-database segment; long sessions use whole-turn windows with masked prior context.
+Chat formatting is selected at runtime. UBAR uses one memory snapshot and one
+user message per example; previous dialogue text is never part of its input.
 """
 
 import hashlib
@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 
 from compile_sft import compile_row, serialize_action
 from dialogue_format import get_format
-from dialogue_protocol import (SEGMENTS, SPECIAL_TOKENS, encode, segment, state_text,
+from dialogue_protocol import (SEGMENTS, SPECIAL_TOKENS, State, encode, segment, state_text,
                                task_messages, ubar_header, ubar_user)
 from generator import compile_views
 from experiment_config import TRAIN_TASKS
@@ -211,7 +211,7 @@ class TaskDataset(Dataset):
 
 
 class SessionDataset(TaskDataset):
-    """UBAR B/A/R sessions; model-output loss by default, prior window context masked."""
+    """UBAR turns conditioned on the previous B/A, without previous utterances."""
 
     def __init__(self, episodes, tokenizer, style='plain', max_length=1024, loss_scope='targets'):
         if loss_scope not in ('targets', 'all'):
@@ -222,37 +222,23 @@ class SessionDataset(TaskDataset):
             if len(ids) != 1 or ids[0] == tokenizer.unk_token_id:
                 raise ValueError('Register UBAR special tokens before building sessions')
         self.items, self.metadata = [], []
-        header = encode(tokenizer, ubar_header(style))
         for episode in episodes:
-            window, labels = list(header), [-100] * len(header)
-            previous = []
-            start_turn = 0
+            previous_state, previous_action = State().snapshot(), None
             for index, turn in enumerate(episode['turns']):
+                header = encode(tokenizer, ubar_header(style, previous_state, previous_action))
                 user = encode(tokenizer, ubar_user(turn['user'], style))
                 output = encode(tokenizer,
                     segment('dst', state_text(turn['state_before'])) +
                     segment('policy', serialize_action(turn['action'])) +
                     segment('response', turn['assistant']))
-                block = user + output
-                block_labels = (user if loss_scope == 'all' else [-100] * len(user)) + output
-                if len(window) + len(block) + 1 > max_length:
-                    if len(window) == len(header):
-                        raise ValueError(f'UBAR turn {episode["episode_id"]}:{index} exceeds max_length')
-                    # Window boundaries are not conversation endings: no fabricated EOS here.
-                    self.items.append(tensor_item(window, labels))
-                    self.metadata.append({'episode_id': episode['episode_id'],
-                                          'first_turn': start_turn, 'last_turn': index - 1})
-                    window = header + previous
-                    labels = [-100] * len(window)
-                    start_turn = index
-                    if len(window) + len(block) + 1 > max_length:
-                        raise ValueError('UBAR requires room for two complete turns; increase max_length')
-                window += block
-                labels += block_labels
-                previous = block
-            self.items.append(tensor_item(window + [eos], labels + [eos]))
-            self.metadata.append({'episode_id': episode['episode_id'],
-                                  'first_turn': start_turn, 'last_turn': len(episode['turns']) - 1})
+                ids = header + user + output + [eos]
+                if len(ids) > max_length:
+                    raise ValueError(f'UBAR turn {episode["episode_id"]}:{index} exceeds max_length')
+                labels = ([-100] * len(header) +
+                          (user if loss_scope == 'all' else [-100] * len(user)) + output + [eos])
+                self.items.append(tensor_item(ids, labels))
+                self.metadata.append({'episode_id': episode['episode_id'], 'turn': index})
+                previous_state, previous_action = turn['state_before'], turn['action']
 
 
 def make_dataset(episodes, tokenizer, task, **kwargs):

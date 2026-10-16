@@ -1,10 +1,10 @@
 """Shared model inference and strict output parsers for training experiments."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from dialogue_protocol import (SEGMENTS, encode, task_messages, ubar_header,
+from dialogue_protocol import (SEGMENTS, UBAR_CONTEXT, encode, task_messages, ubar_prompt,
                                parse_state, parse_extraction, validate_state)
 from dialogue_format import get_format
 
@@ -15,8 +15,11 @@ class Request:
     history: list
     state: dict | None = None
     action: dict | None = None
-    # Completed turns followed by the in-progress turn; no reference targets.
-    session: list[str] = field(default_factory=list)
+    # UBAR memory is B before the last assistant action, plus that action itself.
+    previous_state: dict | None = None
+    previous_action: dict | None = None
+    # Only generated segments of the current turn; no previous user/assistant text.
+    prefix: str = ''
 
 
 @dataclass
@@ -39,6 +42,10 @@ class HFPredictor:
             manifest = path.parent / 'experiment.json'
         self.config = json.loads(manifest.read_text(encoding='utf-8')) if manifest.exists() else {}
         self.task = self.config.get('task')
+        if self.task == 'ubar' and self.config.get('ubar_context') != UBAR_CONTEXT:
+            raise ValueError(
+                'UBAR checkpoint uses an incompatible context format. '
+                'Train a new --task ubar experiment with memory_v1; old session checkpoints require retraining.')
         self.style = self.config.get('style', 'plain')
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=local_files_only)
         self.model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=local_files_only).to(device)
@@ -61,17 +68,16 @@ class HFPredictor:
         if self.task == 'ubar':
             if actual_task not in SEGMENTS:
                 raise ValueError(f'UBAR has no {actual_task} segment')
-            blocks = list(request.session)
+            if (len(request.history) != 1 or request.history[0].get('role') != 'user' or
+                    request.previous_state is None):
+                raise ValueError('UBAR requires previous_state and only the current user message')
             start, end = SEGMENTS[actual_task]
             stop_ids = encode(self.tokenizer, end)
             if len(stop_ids) != 1:
                 raise ValueError('UBAR checkpoint is missing segment tokens')
             stop_id = stop_ids[0]
-            prompt = ubar_header(self.style) + ''.join(blocks) + start
-            # Keep the previous complete turn and current partial turn at minimum.
-            while len(encode(self.tokenizer, prompt)) + budget > self.max_length and len(blocks) > 2:
-                blocks.pop(0)
-                prompt = ubar_header(self.style) + ''.join(blocks) + start
+            prompt = ubar_prompt(request.history[0]['content'], request.previous_state,
+                                 request.previous_action, self.style) + request.prefix + start
         else:
             history = list(request.history)
             fmt = get_format(self.style)

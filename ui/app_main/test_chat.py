@@ -19,7 +19,7 @@ class ChatTests(TestCase):
         self.root = Path(temporary.name)
         self.model = self.root / 'models' / 'ubar'
         self.model.mkdir(parents=True)
-        for name, content in [('experiment.json', {'task': 'ubar'}), ('config.json', {})]:
+        for name, content in [('experiment.json', {'task': 'ubar', 'ubar_context': 'memory_v1'}), ('config.json', {})]:
             (self.model / name).write_text(json.dumps(content), encoding='utf-8')
         (self.model / 'model.safetensors').write_bytes(b'fixture')
         override = override_settings(DIALOGUE_RUN_DIRS=[self.root / 'models'],
@@ -83,7 +83,7 @@ class ChatTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(ChatSession.objects.count(), 1)
 
-    def test_send_serializes_own_history_and_rejects_duplicate_pending_or_stale_turns(self):
+    def test_send_serializes_only_latest_memory_and_rejects_duplicate_pending_or_stale_turns(self):
         chat = self.create_chat()
         first = chat.jobs.get()
         self.complete(first)
@@ -91,7 +91,7 @@ class ChatTests(TestCase):
         self.assertEqual(self.send(chat, first, identifier=identifier).status_code, 302)
         self.assertEqual(self.send(chat, first, identifier=identifier).status_code, 302)
         second = chat.jobs.get(pk=identifier)
-        self.assertEqual(second.config['turns'], [first.result])
+        self.assertEqual(second.config['turns'], [{key: first.result[key] for key in ('state', 'action', 'closed')}])
         page = self.client.get(reverse('app_main:chat', args=[chat.pk]))
         self.assertContains(page, 'B · предсказанное состояние')
         self.assertContains(page, 'A · предсказанное действие')
@@ -104,6 +104,18 @@ class ChatTests(TestCase):
         self.assertEqual(chat.jobs.count(), 2)
         self.assertEqual(self.send(chat, second, 'Another message').status_code, 302)
         self.assertEqual(chat.jobs.count(), 3)
+        third = chat.jobs.exclude(pk__in=[first.pk, second.pk]).get()
+        self.assertEqual(third.config['turns'], [{key: second.result[key] for key in ('state', 'action', 'closed')}])
+        page = self.client.get(reverse('app_main:chat', args=[chat.pk]))
+        self.assertContains(page, 'Model reply', count=2)
+
+    def test_old_ubar_format_requires_retraining_before_creating_chat(self):
+        (self.model / 'experiment.json').write_text('{"task":"ubar"}', encoding='utf-8')
+        page = self.client.post(reverse('app_main:chats'), {
+            'submission_id': uuid.uuid4(), 'model': artifacts.artifact_id(self.model),
+            'device': 'cpu', 'max_new_tokens': 192})
+        self.assertContains(page, 'Обучите новый эксперимент UBAR')
+        self.assertFalse(ChatSession.objects.exists())
 
     def test_history_model_can_chat_without_state_or_action_panels(self):
         model = self.root / 'models' / 'history'
@@ -156,7 +168,8 @@ class ChatTests(TestCase):
         self.assertContains(page, 'B · предсказанное состояние')
         self.assertContains(page, 'A · предсказанное действие')
         self.assertEqual(self.send(chat, first).status_code, 302)
-        self.assertEqual(chat.jobs.exclude(pk=first.pk).get().config['turns'], [first.result])
+        self.assertEqual(chat.jobs.exclude(pk=first.pk).get().config['turns'],
+                         [{key: first.result[key] for key in ('state', 'action', 'closed')}])
 
     def test_failures_do_not_advance_history_and_model_output_is_escaped(self):
         chat = self.create_chat()
@@ -174,7 +187,7 @@ class ChatTests(TestCase):
         self.assertNotContains(response, '<script>alert(1)</script>')
         self.send(chat, opening, 'Try again')
         pending = chat.jobs.get(status='queued')
-        self.assertEqual(pending.config['turns'], [opening.result])
+        self.assertEqual(pending.config['turns'], [{key: opening.result[key] for key in ('state', 'action', 'closed')}])
 
     def test_close_stops_conversation_and_new_chat_has_independent_memory(self):
         chat = self.create_chat()

@@ -37,7 +37,11 @@ def enqueue_message(chat, message, identifier, previous_job=None):
             raise ValueError('Модель завершила разговор. Начните новый диалог.')
         if not message or not message.strip():
             raise ValueError('Введите сообщение.')
-        config = dict(chat.config, turns=[job.result for job in completed], message=message,
+        if chat.config.get('task', 'ubar') == 'ubar':
+            turns = [{key: last.result[key] for key in ('state', 'action', 'closed')}] if last else []
+        else:
+            turns = [job.result for job in completed]
+        config = dict(chat.config, turns=turns, message=message,
                       previous_job=str(previous_job) if previous_job else None)
         return jobs.enqueue('chat', f'Чат · ход {len(completed) + 1}', config, identifier=identifier,
                             output=Path(settings.DIALOGUE_JOBS_DIR) / str(identifier) / 'chat', chat_session=chat)

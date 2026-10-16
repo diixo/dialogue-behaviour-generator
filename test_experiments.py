@@ -16,10 +16,12 @@ from unittest.mock import patch
 import torch
 
 from benchmark import response_variants, run_benchmark
+from chat_runtime import UbarChat
 from compile_sft import serialize_action
 from data import (SEGMENTS, SPECIAL_TOKENS, SessionDataset, TaskDataset, encode, segment,
-                  state_text, task_records, ubar_header, ubar_user)
+                  state_text, task_records)
 from dialogue_format import get_format
+from dialogue_protocol import UBAR_CONTEXT, ubar_prompt
 from generator import Action, State, commit_action, compile_views, generate_episode, select_action
 from inference import HFPredictor, Prediction, Request, parse_extraction, parse_state
 from trainer import train_experiment
@@ -87,35 +89,88 @@ class ObjectiveTests(unittest.TestCase):
             self.assertEqual(parse_state(text), reference['target_state'])
             self.assertNotIn('hidden_user', self.tokenizer.decode(item['input_ids']))
 
-    def test_session_windows_preserve_every_target_without_fabricated_eos(self):
+    def test_ubar_turns_mask_memory_and_supervise_all_segments_and_eos(self):
         tokenizer = self.tokenizer
         episode = self.episode
-        blocks = []
-        for i, turn in enumerate(episode['turns']):
-            user = encode(tokenizer, ubar_user(turn['user']))
-            output = encode(tokenizer, segment('dst', state_text(turn['state_before'])) +
-                            segment('policy', serialize_action(turn['action'])) +
-                            segment('response', turn['assistant']))
-            blocks.append(user + output)
-        size = len(encode(tokenizer, ubar_header())) + max(
-            len(a) + len(b) for a, b in zip(blocks, blocks[1:])) + 1
         full = SessionDataset([episode], tokenizer, max_length=10000)
-        self.assertEqual(tokenizer.decode(full[0]['input_ids']),
-                         ubar_header() + ''.join(tokenizer.decode(block) for block in blocks) + tokenizer.eos_token)
-        windows = SessionDataset([episode], tokenizer, max_length=size)
-        self.assertGreater(len(windows), 1)
+        self.assertEqual(len(full), len(episode['turns']))
+        previous_state, previous_action = State().snapshot(), None
+        for item, turn in zip(full, episode['turns']):
+            prompt = ubar_prompt(turn['user'], previous_state, previous_action)
+            output = (segment('dst', state_text(turn['state_before'])) +
+                      segment('policy', serialize_action(turn['action'])) +
+                      segment('response', turn['assistant']))
+            self.assertEqual(tokenizer.decode(item['input_ids']), prompt + output + tokenizer.eos_token)
+            labels = item['labels'].tolist()
+            boundary = len(encode(tokenizer, prompt))
+            self.assertEqual(labels[:boundary], [-100] * boundary)
+            self.assertEqual(tokenizer.decode(labels[boundary:]), output + tokenizer.eos_token)
+            self.assertEqual(prompt.count('user: '), 1)
+            self.assertNotIn('<|response|>', prompt)
+            previous_state, previous_action = turn['state_before'], turn['action']
+        size = max(len(item['input_ids']) for item in full)
+        bounded = SessionDataset([episode], tokenizer, max_length=size)
         targets = lambda ds: [token for item in ds for token in item['labels'].tolist() if token != -100]
-        self.assertEqual(targets(full), targets(windows))
-        self.assertEqual(targets(windows).count(tokenizer.eos_token_id), 1)
-        self.assertEqual(windows[-1]['labels'][-1].item(), tokenizer.eos_token_id)
-        self.assertTrue(all(len(item['input_ids']) <= size for item in windows))
+        self.assertEqual(targets(full), targets(bounded))
+        self.assertEqual(targets(full).count(tokenizer.eos_token_id), len(episode['turns']))
+        with self.assertRaisesRegex(ValueError, 'max_length'):
+            SessionDataset([episode], tokenizer, max_length=size - 1)
         self.assertGreater(sum(int((item['labels'] != -100).sum()) for item in
                                SessionDataset([episode], tokenizer, max_length=size, loss_scope='all')),
-                           len(targets(windows)))
+                           len(targets(full)))
 
     def test_overlong_target_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'max_length'):
             TaskDataset([self.episode], self.tokenizer, 'dst', max_length=64)
+
+    def test_ubar_training_chat_and_benchmark_use_identical_inputs(self):
+        episode, tokenizer = self.episode, self.tokenizer
+        for style in ('plain', 'chatml'):
+            with self.subTest(style=style):
+                dataset = SessionDataset([episode], tokenizer, style=style, max_length=10000)
+                expected_prompts = []
+                for item in dataset:
+                    ids = item['input_ids'].tolist()
+                    for start, _ in SEGMENTS.values():
+                        expected_prompts.append(ids[:ids.index(encode(tokenizer, start)[0]) + 1])
+
+                def make_predictor():
+                    predictor = object.__new__(HFPredictor)
+                    predictor.task, predictor.style = 'ubar', style
+                    predictor.tokenizer, predictor.torch, predictor.device = tokenizer, torch, 'cpu'
+                    predictor.max_length, predictor.max_new_tokens = 10000, 1000
+                    outputs = iter(text for turn in episode['turns'] for text in (
+                        state_text(turn['state_before']), serialize_action(turn['action']), turn['assistant']))
+                    captured = []
+                    def generate(**kwargs):
+                        captured.append(kwargs['input_ids'][0].tolist())
+                        generated = encode(tokenizer, next(outputs)) + [kwargs['eos_token_id']]
+                        return torch.cat([kwargs['input_ids'], torch.tensor([generated])], dim=1)
+                    predictor.model = SimpleNamespace(generate=generate)
+                    return predictor, captured
+
+                predictor, captured = make_predictor()
+                chat, turns = UbarChat(predictor), []
+                for turn in episode['turns']:
+                    result = chat.generate_turn(turns, turn['user'])
+                    self.assertEqual(result['status'], 'completed', result)
+                    turns.append(result)
+                self.assertEqual(captured, expected_prompts)
+                for context in ('reference', 'predicted'):
+                    predictor, captured = make_predictor()
+                    report, records = run_benchmark([episode], predictor, context=context)
+                    self.assertEqual(report['errors'], {})
+                    self.assertEqual(captured, expected_prompts)
+                    self.assertTrue(all(len(stage['input']['history']) == 1
+                                        for row in records for stage in row['stages'].values()))
+
+    def test_old_ubar_checkpoint_is_rejected_before_loading_weights(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / 'experiment.json').write_text('{"task":"ubar"}', encoding='utf-8')
+            with patch('transformers.AutoModelForCausalLM.from_pretrained') as load, \
+                    self.assertRaisesRegex(ValueError, 'memory_v1'):
+                HFPredictor(directory, local_files_only=True)
+            load.assert_not_called()
 
     def test_parsers_reject_incomplete_or_invalid_state(self):
         state = State().snapshot()
@@ -136,7 +191,7 @@ class ObjectiveTests(unittest.TestCase):
         predictor.max_new_tokens, predictor.max_length = 1000, 10000
         source = compile_views(self.episode)['extraction'][0]
         request = Request('dst', source['history_before'] + [{'role': 'user', 'content': source['utterance']}],
-                          source['state_before'], session=[ubar_user(source['utterance'])])
+                          source['state_before'], previous_state=source['state_before'])
         for task in ('dst', 'extraction', 'ubar'):
             predictor.task = task
             end_id = encode(self.tokenizer, SEGMENTS['dst'][1])[0] if task == 'ubar' else self.tokenizer.eos_token_id
@@ -194,7 +249,7 @@ class BenchmarkTests(unittest.TestCase):
                     self.assertEqual(dst[0].state, source['state_before'])
                     self.assertEqual(dst[0].state, State().snapshot())
                     self.assertEqual(len(dst), len(self.episode['turns']))
-                    self.assertNotIn('<|state|>', dst[0].session[-1])
+                    self.assertEqual(dst[0].prefix, '')
                     self.assertEqual(dst[0].history[-1]['content'], self.episode['turns'][0]['user'])
                 if evaluation['context'] == 'predicted':
                     self.assertEqual(report['context'], 'predicted')
@@ -241,8 +296,8 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(dst[1].history, [self.episode['messages'][0],
             {'role': 'assistant', 'content': 'A model response outside the reference templates.'},
             {'role': 'user', 'content': self.episode['turns'][1]['user']}])
-        self.assertIn(segment('policy', 'ASK(mood)'), dst[1].session[0])
-        self.assertNotIn(self.episode['turns'][0]['assistant'], dst[1].session[0])
+        self.assertEqual(dst[1].previous_action, {'type': 'ASK', 'target': 'mood'})
+        self.assertEqual(dst[1].previous_state['topic'], 'python')
         self.assertEqual(records[0]['stages']['dst']['input']['history'], [self.episode['messages'][0]])
         self.assertEqual(report['session_outcomes'][0]['terminal'], 'reference_exhausted')
 
@@ -271,6 +326,43 @@ class BenchmarkTests(unittest.TestCase):
                     self.assertEqual(record['metrics']['state.exact'], 0)
                     self.assertEqual(record['metrics']['action.exact'], 0)
                     self.assertEqual(record['metrics']['response.reference_exact'], 0)
+
+    def test_ubar_predicted_memory_is_not_repaired_and_old_text_is_never_sent(self):
+        for user_source in ('dataset', 'simulator'):
+            requests = []
+            class Model:
+                task = 'ubar'
+                def __call__(self, request):
+                    requests.append(deepcopy(request))
+                    if request.task == 'dst':
+                        state = deepcopy(request.previous_state)
+                        state['topic'] = 'python'
+                        state['attempts']['mood'] = 7
+                        return Prediction(json.dumps(state, indent=2))
+                    if request.task == 'policy':
+                        return Prediction(' ASK(mood) ')
+                    return Prediction('A unique generated reply that must never enter the next input.')
+            report, records = run_benchmark([self.episode], Model(), context='predicted',
+                                            user_source=user_source, max_turns=3)
+            dst = [r for r in requests if r.task == 'dst']
+            self.assertGreater(len(dst), 2)
+            self.assertEqual(dst[0].previous_state, State().snapshot())
+            self.assertIsNone(dst[0].previous_action)
+            for request in dst[1:]:
+                self.assertEqual(request.previous_state['attempts']['mood'], 7)
+                self.assertIsNone(request.previous_state['pending'])
+                self.assertIsNone(request.previous_state['last_action'])
+                self.assertEqual(request.previous_state['topic'], 'python')
+                self.assertEqual(request.previous_action, {'type': 'ASK', 'target': 'mood'})
+                self.assertEqual(request.prefix, '')
+            for request in requests:
+                self.assertEqual(len(request.history), 1)
+                self.assertEqual(request.history[0]['role'], 'user')
+                self.assertNotIn('unique generated reply', request.prefix)
+            first = records[0]['stages']
+            self.assertEqual(requests[1].prefix, segment('dst', first['dst']['text']))
+            self.assertEqual(requests[2].prefix, segment('dst', first['dst']['text']) +
+                             segment('policy', first['policy']['text']))
 
     def test_invalid_or_unterminated_state_blocks_downstream_without_oracle_fallback(self):
         for prediction in (Prediction('{}'), Prediction(state_text(State().snapshot()), stopped=False)):
@@ -326,7 +418,8 @@ class BenchmarkTests(unittest.TestCase):
         dst = [r for r in requests if r.task == 'dst']
         self.assertEqual(dst[0].state, State().snapshot())
         self.assertEqual(dst[0].history, [self.episode['messages'][0]])
-        self.assertEqual(dst[0].session, [ubar_user(self.episode['turns'][0]['user'])])
+        self.assertEqual(dst[0].prefix, '')
+        self.assertEqual(dst[0].previous_state, State().snapshot())
         self.assertEqual(dst[1].state['pending'], 'mood')
         self.assertEqual(dst[2].state['attempts']['mood'], 2)
         self.assertEqual(dst[1].history[1]['content'], response_variants({'type': 'ASK', 'target': 'mood'})[0])
@@ -400,10 +493,12 @@ class TrainerIntegrationTests(unittest.TestCase):
                     self.assertTrue(math.isfinite(metrics['eval_loss']))
                     self.assertFalse(torch.equal(before, model.transformer.h[0].attn.c_attn.weight))
                     self.assertEqual(manifest['task'], task)
+                    if task == 'ubar':
+                        self.assertEqual(manifest['ubar_context'], UBAR_CONTEXT)
                     reloaded = HFPredictor(output, local_files_only=True, max_new_tokens=2)
                     row = compile_views(validation[0])['extraction'][0]
                     history = row['history_before'] + [{'role': 'user', 'content': row['utterance']}]
-                    result = reloaded(Request('dst', history, row['state_before'], session=[ubar_user(row['utterance'])]))
+                    result = reloaded(Request('dst', history, row['state_before'], previous_state=row['state_before']))
                     self.assertIsInstance(result, Prediction)
                     self.assertGreater(result.tokens, 0)
                     self.assertLessEqual(result.tokens, 2)
