@@ -74,6 +74,9 @@ class DashboardTests(SimpleTestCase):
                   'groups': {'reaction=DIRECT_ANSWER': {'examples': 2, 'metrics': metrics}},
                   'data_review_candidates': [{'error': 'state.mismatch', 'reaction': 'DIRECT_ANSWER',
                                               'target': 'mood', 'count': 1}], **overrides}
+        if 'chain' in overrides:
+            config.pop('mode')
+            config['schema_version'] = 2
         self.write_json(path / 'report.json', config)
         records = []
         for i in range(2):
@@ -190,9 +193,9 @@ class DashboardTests(SimpleTestCase):
             initial_state='empty_before_first_user', session_summary={
                 'generated_turns': 1, 'termination_counts': {'premature_close': 1}})
         response = self.client.get(reverse('app_main:report_detail', args=[identifier]))
-        self.assertContains(response, 'Session: сообщения пользователя взяты из датасета')
+        self.assertContains(response, 'Сообщения пользователя взяты из датасета')
         self.assertContains(response, 'Завершённых ходов: 1 / 2')
-        self.assertNotContains(response, 'Replay: каждый переход')
+        self.assertNotContains(response, 'Каждый переход начинается с записанной предыстории')
         detail = self.client.get(reverse('app_main:prediction', args=[identifier, 0]))
         self.assertTrue(detail.context['source_url'])
 
@@ -218,9 +221,36 @@ class DashboardTests(SimpleTestCase):
         self.make_report('second', mode='rollout', corpus_hash='other', seed=43)
         response = self.client.get(url, {'run': [first, second]})
         self.assertTrue(any('corpus_hash' in issue for issue in response.context['comparison_issues']))
-        self.assertTrue(any('mode' in issue for issue in response.context['comparison_issues']))
+        self.assertTrue(any('Контекст' in issue for issue in response.context['comparison_issues']))
+        self.assertTrue(any('Сообщения пользователя' in issue for issue in response.context['comparison_issues']))
         self.assertTrue(any('seed' in issue for issue in response.context['comparison_issues']))
         self.assertTrue(self.client.get(url, {'run': [first]}).context['selection_error'])
+
+    def test_current_and_historical_reports_share_filters_and_comparison(self):
+        old = self.make_report('old', mode='session', context='predicted_history_with_recorded_users')
+        current = self.make_report('current', chain='full', context='predicted', user_source='dataset', max_turns=99)
+        simulator = self.make_report('simulator', chain='full', context='predicted', user_source='simulator')
+        self.make_report('reference', chain='full', context='reference', user_source='dataset')
+        self.make_report('policy', chain='policy', context='reference', user_source='dataset')
+        response = self.client.get(reverse('app_main:reports'),
+                                   {'chain': 'full', 'context': 'predicted', 'user_source': 'dataset'})
+        self.assertEqual({item['id'] for item in response.context['items']}, {old, current})
+        response = self.client.get(reverse('app_main:reports'), {'chain': 'policy'})
+        self.assertEqual(response.context['items'].paginator.count, 1)
+        response = self.client.get(reverse('app_main:compare'), {'run': [old, current]})
+        self.assertEqual(response.context['comparison_issues'], [])
+        response = self.client.get(reverse('app_main:compare'), {'run': [current, simulator]})
+        self.assertTrue(any('Сообщения пользователя' in issue for issue in response.context['comparison_issues']))
+        for identifier in (old, current, simulator):
+            response = self.client.get(reverse('app_main:report_detail', args=[identifier]))
+            self.assertContains(response, 'Полная: DST → policy → response')
+            self.assertContains(response, 'Собственная предыстория модели')
+        response = self.client.get(reverse('app_main:prediction', args=[simulator, 0]))
+        self.assertIsNone(response.context['source_url'])
+        # Reading an old report must not rewrite it or mutate the cached raw JSON.
+        raw = artifacts.read_object(self.runs / 'old' / 'report.json')
+        self.assertEqual(raw['context'], 'predicted_history_with_recorded_users')
+        self.assertNotIn('chain', raw)
 
     def test_comparison_does_not_confirm_missing_generation_settings(self):
         first, second = self.make_report('first'), self.make_report('second', models={})

@@ -157,7 +157,8 @@ class QueueTests(TestCase):
 
     def test_benchmark_rejects_incompatible_stage_and_accepts_ubar(self):
         policy, _ = self.checkpoint('policy')
-        data = dict(submission_id=uuid.uuid4(), mode='full', split='validation', model=policy,
+        data = dict(submission_id=uuid.uuid4(), chain='full', context='reference', user_source='dataset',
+                    split='validation', model=policy,
                     device='cpu', max_new_tokens=384, max_turns=17, seed=42)
         self.assertFalse(BenchmarkForm(data).is_valid())
         ubar, path = self.checkpoint()
@@ -165,10 +166,31 @@ class QueueTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.job_config()['model'], str(path.resolve()))
         self.assertFalse(BenchmarkForm(data | {'model': '../outside'}).is_valid())
-        self.assertFalse(BenchmarkForm(data | {'mode': 'session'}).is_valid())
-        form = BenchmarkForm(data | {'model': ubar, 'mode': 'session'})
-        self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.job_config()['mode'], 'session')
+        self.assertFalse(BenchmarkForm(data | {'context': 'predicted'}).is_valid())
+        for source in ('dataset', 'simulator'):
+            form = BenchmarkForm(data | {'model': ubar, 'context': 'predicted', 'user_source': source})
+            self.assertTrue(form.is_valid(), form.errors)
+            self.assertEqual(form.job_config()['context'], 'predicted')
+            self.assertEqual(form.job_config()['user_source'], source)
+            self.assertNotIn('mode', form.job_config())
+
+    def test_benchmark_options_validate_and_reach_queued_job(self):
+        ubar, _ = self.checkpoint()
+        data = dict(submission_id=uuid.uuid4(), chain='full', context='predicted', user_source='dataset',
+                    split='validation', model=ubar, device='cpu', max_new_tokens=192, max_turns=17, seed=42)
+        for options in ({'chain': 'policy'}, {'context': 'reference', 'user_source': 'simulator'},
+                        {'chain': 'session'}, {'user_source': 'unknown'}):
+            with self.subTest(**options):
+                response = self.client.post(reverse('app_main:new_benchmark'), data | options)
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.context['form'].errors)
+                self.assertFalse(Job.objects.exists())
+        response = self.client.post(reverse('app_main:new_benchmark'), data)
+        self.assertEqual(response.status_code, 302)
+        config = Job.objects.get().config
+        self.assertEqual({key: config[key] for key in ('chain', 'context', 'user_source')},
+                         dict(chain='full', context='predicted', user_source='dataset'))
+        self.assertNotIn('mode', config)
 
     def test_resume_keeps_budget_and_forks_artifacts(self):
         identifier, path = self.checkpoint()

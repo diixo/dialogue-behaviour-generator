@@ -1,19 +1,19 @@
 """Evaluate generated behaviour, independently of teacher-forced validation loss.
 
 Examples (train checkpoints with trainer.py first):
-  python benchmark.py --model runs/ubar --mode full --output runs/eval-ubar
-  python benchmark.py --model runs/ubar --mode session --output runs/session-ubar
-  python benchmark.py --model runs/ubar --mode rollout --output runs/rollout-ubar
-  python benchmark.py --model runs/dst --mode dst --output runs/eval-dst
+  python benchmark.py --model runs/ubar --chain full --output runs/eval-ubar
+  python benchmark.py --model runs/ubar --context predicted --output runs/session-ubar
+  python benchmark.py --model runs/ubar --context predicted --user-source simulator --output runs/rollout-ubar
+  python benchmark.py --model runs/dst --chain dst --output runs/eval-dst
   python benchmark.py --dst-model runs/dst --policy-model runs/policy \
-      --response-model runs/response --mode full --output runs/eval-modular
+      --response-model runs/response --chain full --output runs/eval-modular
 
-Replay uses reference history and resets memory at each transition. response uses
-reference B,A; policy_response uses reference B; full predicts B,A,R after each
-user message, including the first message starting from empty memory. session uses
-recorded user messages with predicted memory, actions and replies carried forward.
-rollout also carries predicted context, but its simulator supplies subsequent user
-messages in response to actions, not text.
+Chain: response uses reference B,A; policy_response uses reference B; full predicts
+B,A,R after each user message, starting from empty memory for the first message.
+Context: reference resets history/memory at each transition; predicted carries
+the model's memory, actions and replies forward (full chain only).
+User source: dataset replays recorded messages; simulator supplies subsequent user
+messages in response to predicted actions, not text (predicted context only).
 Template metrics are finite-corpus proxies, not semantic scores for paraphrases.
 """
 
@@ -30,9 +30,7 @@ from generator import (ACKS, ASK_TEXT, CLOSES, FOLLOWUP, SLOTS, Action, State,
                        UserSimulator, commit_action, compile_views, observe,
                        select_action, write_jsonl)
 from inference import Prediction, PredictorRouter, Request, parse_extraction, parse_state
-from experiment_config import EVAL_MODES
-
-MODES = EVAL_MODES
+from experiment_config import EVAL_CHAINS, EVAL_CONTEXTS, EVAL_USER_SOURCES, validate_evaluation
 ANSWERS = ('I do not have a time of day myself, but I would be happy to chat.',
            'I am here to help and chat with you.')
 
@@ -166,7 +164,7 @@ def score_response(record, text, expected_action, conditioned_action, reference=
             record['errors'].append('response.wrong_action_template')
 
 
-def replay(episodes, predictor, mode, style, progress=None):
+def replay(episodes, predictor, chain, style, progress=None):
     records = []
     for episode_number, episode in enumerate(episodes):
         views = compile_views(episode)
@@ -188,8 +186,8 @@ def replay(episodes, predictor, mode, style, progress=None):
             record['reference'] = {'state': gold_state, 'action': gold_action, 'response': turn['assistant']}
             state, action, response = gold_state, gold_action, None
             current = user_block
-            if mode in ('dst', 'extraction', 'full'):
-                task = 'extraction' if mode == 'extraction' else 'dst'
+            if chain in ('dst', 'extraction', 'full'):
+                task = 'extraction' if chain == 'extraction' else 'dst'
                 result = predict(predictor, Request(task, history, source['state_before'],
                                  session=previous_blocks + [current]), record,
                                  parse_extraction if task == 'extraction' else parse_state)
@@ -208,7 +206,7 @@ def replay(episodes, predictor, mode, style, progress=None):
                         record['errors'].append('observation.mismatch')
             if state is not None:
                 current += segment('dst', state_text(state))
-            if mode in ('policy', 'policy_response', 'full'):
+            if chain in ('policy', 'policy_response', 'full'):
                 if state is None:
                     blocked(record, 'policy')
                     action = None
@@ -218,8 +216,8 @@ def replay(episodes, predictor, mode, style, progress=None):
                 score_action(record, action, gold_action, gold_state)
             if action is not None:
                 current += segment('policy', serialize_action(action))
-            if mode in ('response', 'history', 'policy_response', 'full'):
-                task = 'history' if mode == 'history' else 'response'
+            if chain in ('response', 'history', 'policy_response', 'full'):
+                task = 'history' if chain == 'history' else 'response'
                 if action is None or state is None:
                     blocked(record, task)
                 else:
@@ -388,9 +386,11 @@ def summarize(records):
     }, requests
 
 
-def run_benchmark(episodes, predictor, *, mode='full', seed=42, max_turns=17, progress=None):
-    if mode not in MODES or max_turns <= 0 or not episodes:
-        raise ValueError('Choose a valid mode, positive horizon and nonempty episodes')
+def run_benchmark(episodes, predictor, *, chain='full', context='reference', user_source='dataset',
+                  seed=42, max_turns=17, progress=None):
+    validate_evaluation(chain, context, user_source)
+    if max_turns <= 0 or not episodes:
+        raise ValueError('Choose a positive horizon and nonempty episodes')
     if len({episode['episode_id'] for episode in episodes}) != len(episodes):
         raise ValueError('Duplicate evaluation episode IDs')
     for episode in episodes:
@@ -401,44 +401,43 @@ def run_benchmark(episodes, predictor, *, mode='full', seed=42, max_turns=17, pr
         if turns[0]['state_before_user'] != State().snapshot():
             raise ValueError(f'{episode["episode_id"]}: memory before the first user message must be empty')
     style = getattr(predictor, 'style', 'plain')
-    if mode == 'rollout':
+    if user_source == 'simulator':
         records, outcomes = rollout(episodes, predictor, style, seed, max_turns, progress)
-    elif mode == 'session':
+    elif context == 'predicted':
         records, outcomes = session(episodes, predictor, style, progress)
     else:
-        records, outcomes = replay(episodes, predictor, mode, style, progress)
+        records, outcomes = replay(episodes, predictor, chain, style, progress)
     if progress:
         progress(completed_episodes=len(episodes), total_episodes=len(episodes), episode_id=None, turn=None)
     errors, groups, requests = summarize(records)
-    report = {'schema_version': 1, 'mode': mode, 'seed': seed, 'max_turns': max_turns,
+    report = {'schema_version': 2, 'chain': chain, 'context': context, 'user_source': user_source,
+              'seed': seed, 'max_turns': max_turns,
               'splits': sorted({ep['split'] for ep in episodes}), 'corpus_hash': corpus_hash(episodes),
               'episodes': len(episodes), 'evaluated_turns': len(records),
               'models': getattr(predictor, 'metadata', {}),
-              'context': {'rollout': 'predicted_history_and_memory',
-                          'session': 'predicted_history_with_recorded_users'}.get(mode, 'reference_history_per_transition'),
               'initial_state': 'empty_before_first_user',
               'metrics': aggregate(records),
               'errors': errors, 'groups': groups, 'data_review_candidates': requests,
-              'rollout_outcomes': outcomes if mode == 'rollout' else [],
+              'rollout_outcomes': outcomes if user_source == 'simulator' else [],
               'limitations': ['Shared-template corpus; this does not measure unseen-language generalization.',
                              'Response template matches are proxies; unknown paraphrases need manual review.',
                              'Behaviour violation rates condition on valid actions; inspect stage coverage.',
                              'Data review candidates are diagnostics, not proof that more data will fix an error.']}
-    if mode == 'rollout':
+    if user_source == 'simulator':
         report['limitations'].append('Simulator reacts to predicted actions, not the semantic content of replies.')
-    if mode == 'session':
+    if context == 'predicted' and user_source == 'dataset':
         report['session_outcomes'] = outcomes
         report['limitations'].extend([
             'Recorded user messages do not adapt to generated questions; references describe the recorded trajectory.',
             'After invalid generation or CLOSE, remaining recorded turns are unavailable and score zero.',
             'All recorded turns are scored; max_turns applies only to simulator rollout.'])
     if outcomes:
-        report[mode + '_summary'] = {'termination_counts': dict(Counter(o['terminal'] for o in outcomes)),
-                                    'policy_perfect_episodes': sum(o['policy_perfect'] for o in outcomes),
-                                    'response_template_perfect_episodes': sum(
-                                        o['response_template_perfect'] for o in outcomes)}
-        if mode == 'session':
-            report['session_summary']['generated_turns'] = sum(o['generated_turns'] for o in outcomes)
+        summary = {'termination_counts': dict(Counter(o['terminal'] for o in outcomes)),
+                   'policy_perfect_episodes': sum(o['policy_perfect'] for o in outcomes),
+                   'response_template_perfect_episodes': sum(o['response_template_perfect'] for o in outcomes)}
+        if user_source == 'dataset':
+            summary['generated_turns'] = sum(o['generated_turns'] for o in outcomes)
+        report['rollout_summary' if user_source == 'simulator' else 'session_summary'] = summary
     return report, records
 
 
@@ -446,7 +445,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--data', default='data')
     parser.add_argument('--split', choices=('validation', 'test'), default='test')
-    parser.add_argument('--mode', choices=MODES, default='full')
+    parser.add_argument('--chain', choices=EVAL_CHAINS, default='full', help='Stages to evaluate')
+    parser.add_argument('--context', choices=EVAL_CONTEXTS, default='reference',
+                        help='Previous history/memory; predicted requires --chain full')
+    parser.add_argument('--user-source', choices=EVAL_USER_SOURCES, default='dataset',
+                        help='User messages; simulator requires --context predicted')
     parser.add_argument('--model', help='Default trained checkpoint for every requested stage')
     parser.add_argument('--dst-model')
     parser.add_argument('--policy-model')
@@ -455,10 +458,14 @@ def main():
     parser.add_argument('--device', default='cpu')
     parser.add_argument('--local-files-only', action='store_true')
     parser.add_argument('--max-new-tokens', type=int, default=384, help='Upper bound; action/reply caps are 32/128')
-    parser.add_argument('--max-turns', type=int, default=17)
+    parser.add_argument('--max-turns', type=int, default=17, help='Simulator only; dataset evaluation scores all recorded turns')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--limit-episodes', type=int)
     args = parser.parse_args()
+    try:
+        validate_evaluation(args.chain, args.context, args.user_source)
+    except ValueError as error:
+        parser.error(str(error))
     if args.limit_episodes is not None and args.limit_episodes <= 0:
         parser.error('--limit-episodes must be positive')
     output = Path(args.output)
@@ -467,9 +474,10 @@ def main():
     predictor = PredictorRouter(args.model, dst=args.dst_model, policy=args.policy_model,
                                 response=args.response_model, device=args.device,
                                 local_files_only=args.local_files_only, max_new_tokens=args.max_new_tokens)
-    predictor.validate_mode(args.mode)
+    predictor.validate_chain(args.chain)
     episodes = read_episodes(args.data, args.split)[:args.limit_episodes]
-    report, records = run_benchmark(episodes, predictor, mode=args.mode, seed=args.seed, max_turns=args.max_turns)
+    report, records = run_benchmark(episodes, predictor, chain=args.chain, context=args.context,
+                                    user_source=args.user_source, seed=args.seed, max_turns=args.max_turns)
     output.mkdir(parents=True, exist_ok=True)
     (output / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     write_jsonl(output / 'predictions.jsonl', records)

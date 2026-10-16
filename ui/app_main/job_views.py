@@ -43,7 +43,8 @@ def submit(request, kind):
     if request.method == 'POST' and form.is_valid():
         try:
             config = form.job_config()
-            name = form.cleaned_data.get('name') or (f'Обучение {config["task"]}' if kind != 'benchmark' else f'Оценка {config["mode"]}')
+            name = form.cleaned_data.get('name') or (f'Обучение {config["task"]}' if kind != 'benchmark'
+                                                    else f'Оценка {config["chain"]} · {config["context"]} · {config["user_source"]}')
             job = jobs.enqueue('train' if kind == 'resume' else kind, name, config,
                                identifier=form.cleaned_data['submission_id'])
             return redirect('app_main:job', identifier=job.pk)

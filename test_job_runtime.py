@@ -67,7 +67,8 @@ class JobIntegrationTests(unittest.TestCase):
             manifest = json.loads((root / 'continued' / 'experiment.json').read_text())
             self.assertEqual(continued['metrics']['global_step'], 2 * manifest['train']['examples'])
             self.assertEqual((root / 'first' / 'experiment.json').read_bytes(), manifest_before)
-            evaluation = dict(model=str(root / 'continued'), split='validation', mode='dst' if task == 'dst' else 'full',
+            evaluation = dict(model=str(root / 'continued'), split='validation', chain='dst' if task == 'dst' else 'full',
+                              context='reference', user_source='dataset',
                               data=str(data), data_hashes={'validation': corpus_hash(episodes['validation'])},
                               limit_episodes=None, local_files_only=True, device='cpu', max_new_tokens=2,
                               seed=42, max_turns=17)
@@ -95,7 +96,8 @@ class JobIntegrationTests(unittest.TestCase):
             control = JobControl(temporary)
             (Path(temporary) / 'stop.request').touch()
             oracle = ReplayOracle(episode)
-            for mode in ('full', 'session', 'rollout'):
+            for context, user_source in (('reference', 'dataset'), ('predicted', 'dataset'), ('predicted', 'simulator')):
                 with self.assertRaises(JobCancelled):
-                    run_benchmark([episode], oracle, mode=mode, progress=control.benchmark_progress)
+                    run_benchmark([episode], oracle, context=context, user_source=user_source,
+                                  progress=control.benchmark_progress)
             self.assertEqual(oracle.requests, [])

@@ -54,16 +54,18 @@ def execute(spec, control):
     if spec['kind'] != 'benchmark':
         raise ValueError('Unknown job kind')
     from benchmark import run_benchmark
+    from experiment_config import evaluation_options
     from generator import write_jsonl
     from inference import PredictorRouter
     output = Path(spec['output'])
     if output.exists() and any(output.iterdir()):
         raise ValueError('Benchmark output must be empty')
+    evaluation = evaluation_options(config)
     predictor = PredictorRouter(config.get('model'), dst=config.get('dst'), policy=config.get('policy'),
                                 response=config.get('response'), device=config['device'],
                                 local_files_only=config['local_files_only'], max_new_tokens=config['max_new_tokens'])
-    predictor.validate_mode(config['mode'])
-    report, records = run_benchmark(episodes[config['split']], predictor, mode=config['mode'],
+    predictor.validate_chain(evaluation['chain'])
+    report, records = run_benchmark(episodes[config['split']], predictor, **evaluation,
                                    seed=config['seed'], max_turns=config['max_turns'],
                                    progress=control.benchmark_progress)
     control.check_stop()

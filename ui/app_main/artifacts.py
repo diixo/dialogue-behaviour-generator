@@ -10,7 +10,23 @@ from pathlib import Path
 
 from django.conf import settings
 
+from experiment_config import evaluation_options
+
 SPLITS = ('train', 'validation', 'test')
+EVALUATION_FIELDS = {
+    'chain': ('Цепочка', {'dst': 'DST — состояние', 'extraction': 'Extraction — наблюдение и состояние',
+                         'policy': 'Policy — действие', 'response': 'Response — ответ',
+                         'history': 'History — прямой ответ', 'policy_response': 'Policy → response',
+                         'full': 'Полная: DST → policy → response'}),
+    'context': ('Контекст', {'reference': 'Эталонная предыстория', 'predicted': 'Собственная предыстория модели'}),
+    'user_source': ('Сообщения пользователя', {'dataset': 'Из датасета', 'simulator': 'От симулятора'}),
+}
+
+
+def evaluation_details(config):
+    options = evaluation_options(config)
+    labels = {key + '_label': choices[options[key]] for key, (_, choices) in EVALUATION_FIELDS.items()}
+    return options | labels | {'label': ' · '.join(labels.values())}
 
 
 class ArtifactError(ValueError):
@@ -190,13 +206,15 @@ def discover():
                 seen.add(path.resolve())
                 try:
                     value = read_object(path)
-                    required = ('task',) if filename == 'experiment.json' else ('mode', 'metrics')
+                    required = ('task',) if filename == 'experiment.json' else ('metrics',)
                     if any(key not in value for key in required):
                         raise ArtifactError(f'{filename}: missing {", ".join(required)}')
+                    evaluation = evaluation_details(value) if filename == 'report.json' else None
                     collection.append({'id': artifact_id(path), 'name': str(Path(directory).relative_to(root.parent)),
                                        'path': Path(directory), 'config': value,
+                                       'evaluation': evaluation,
                                        'modified': path.stat().st_mtime})
-                except (ArtifactError, OSError) as error:
+                except (ValueError, OSError) as error:
                     issues.append(f'{path.parent.name}: {error}')
     for collection in (experiments, reports):
         collection.sort(key=lambda item: (-item['modified'], item['name']))
@@ -218,13 +236,17 @@ def metric_rows(metrics):
 def comparison_issues(reports):
     """Check evaluation conditions independently of model identity."""
     issues = []
-    fields = ('mode', 'splits', 'corpus_hash', 'episodes', 'seed', 'max_turns', 'context', 'initial_state')
+    configs = [report['config'] | evaluation_options(report['config']) for report in reports]
+    fields = ('chain', 'context', 'user_source', 'splits', 'corpus_hash', 'episodes', 'seed', 'initial_state')
+    if any(config['user_source'] == 'simulator' for config in configs):
+        fields += ('max_turns',)
     for field in fields:
-        values = [report['config'].get(field) for report in reports]
+        values = [config.get(field) for config in configs]
+        label = EVALUATION_FIELDS[field][0] if field in EVALUATION_FIELDS else field
         if any(value is None for value in values):
-            issues.append(f'{field}: условия не записаны во всех отчётах')
+            issues.append(f'{label}: условия не записаны во всех отчётах')
         elif any(value != values[0] for value in values[1:]):
-            issues.append(f'{field}: разные условия оценки')
+            issues.append(f'{label}: разные условия оценки')
     protocols = []
     for report in reports:
         models = report['config'].get('models', {})

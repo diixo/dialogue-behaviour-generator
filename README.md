@@ -18,6 +18,11 @@ It reads `data/`, `outputs/` and `runs/`; paths are configured in `ui/ui/setting
 The UI queues training/evaluation, shows live progress and supports checkpoint stop/resume.
 Chat with a trained UBAR model through the same worker and inspect each turn's state and action.
 
+Commands: `/reset`, `/exit`; use `--device cuda` for GPU. Only `torch` and `transformers`
+are required. To distribute the chat separately, copy `chat_runtime.py`, `inference.py`,
+`dialogue_protocol.py`, `dialogue_format.py`, `requirements-chat.txt` and the model directory
+(including tokenizer files and `experiment.json`).
+
 
 ## Data
 
@@ -49,16 +54,17 @@ python -m pip install -r requirements.txt
 python generator.py --out data --train 2000 --validation 200 --test 200 --seed 42
 python compile_sft.py --data data --out data/sft
 python trainer.py --task ubar --output runs/ubar
-python benchmark.py --model runs/ubar --mode full --output runs/eval-ubar
+python benchmark.py --model runs/ubar --chain full --context reference --user-source dataset --output runs/eval-ubar
 python -m unittest discover -v
 ```
 
 Generation and SFT export themselves require only the Python standard library.
 
 Training tasks: `dst` (state only), `extraction`, `policy`, `response`, `history`, `ubar`.
-Benchmark tasks separately or use `response` (reference state/action), `policy_response`
-(reference state), `full` (predicted state/action with reference history), `session`
-(recorded user messages with predicted history/memory), and `rollout` (simulated users with predicted context).
+Benchmark settings: `--chain` selects stages (`full` = DST → policy → response),
+`--context reference|predicted` selects prior history/memory, and
+`--user-source dataset|simulator` selects user messages. Predicted context requires
+the full chain; simulated users require predicted context. Defaults: full/reference/dataset.
 Reports group errors by reaction, action, target and depth; see `--help` for options.
 
 `data.py` provides individual datasets, `DialogueChainDataset` and `chain_collate_batch`

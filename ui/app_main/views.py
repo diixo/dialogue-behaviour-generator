@@ -220,11 +220,13 @@ def experiment(request, identifier):
 
 def reports(request):
     _, runs, issues = artifacts.discover()
-    mode = request.GET.get('mode', '')
-    modes = sorted({r['config']['mode'] for r in runs})
-    if mode:
-        runs = [r for r in runs if r['config']['mode'] == mode]
-    return page(request, 'reports', 'Бенчмарки', 'reports', modes=modes, mode=mode,
+    filters = []
+    for key, (label, choices) in artifacts.EVALUATION_FIELDS.items():
+        selected = request.GET.get(key, '')
+        filters.append({'name': key, 'label': label, 'choices': choices.items(), 'selected': selected})
+        if selected:
+            runs = [r for r in runs if r['evaluation'][key] == selected]
+    return page(request, 'reports', 'Бенчмарки', 'reports', filters=filters,
                 roots=settings.DIALOGUE_RUN_DIRS, issues=issues, **paginate(request, runs))
 
 
@@ -285,7 +287,7 @@ def prediction(request, identifier, position):
                        'changes': differences(expected, result['parsed']) if
                        isinstance(expected, dict) and isinstance(result.get('parsed'), dict) else []})
     source_url = None
-    if run['config']['mode'] != 'rollout':
+    if run['evaluation']['user_source'] == 'dataset':
         for split in run['config'].get('splits', []):
             try:
                 corpus = artifacts.dataset_index(split)

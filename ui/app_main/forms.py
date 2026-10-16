@@ -6,7 +6,7 @@ import uuid
 
 from django import forms
 
-from experiment_config import TRAIN_DEFAULTS, TRAIN_TASKS, EVAL_MODES, compatible_task, required_stages
+from experiment_config import TRAIN_DEFAULTS, TRAIN_TASKS, compatible_task, required_stages, validate_evaluation
 from . import artifacts, jobs
 
 
@@ -51,11 +51,12 @@ class TrainForm(StyledForm):
 
 
 class BenchmarkForm(StyledForm):
-    mode = forms.ChoiceField(label='Протокол', choices=[(x, {
-        'full': 'full — эталонная предыстория',
-        'session': 'session — собственная предыстория',
-        'rollout': 'rollout — диалог с симулятором',
-    }.get(x, x)) for x in EVAL_MODES], initial='full')
+    chain = forms.ChoiceField(label='Цепочка', choices=list(artifacts.EVALUATION_FIELDS['chain'][1].items()), initial='full',
+                              help_text='Какие этапы предсказывает модель на каждом ходе.')
+    context = forms.ChoiceField(label='Контекст', choices=list(artifacts.EVALUATION_FIELDS['context'][1].items()), initial='reference',
+                                help_text='Собственная предыстория доступна для полной цепочки; ошибки накапливаются между ходами.')
+    user_source = forms.ChoiceField(label='Сообщения пользователя', choices=list(artifacts.EVALUATION_FIELDS['user_source'][1].items()), initial='dataset',
+                                    help_text='Симулятор требует собственную предысторию модели и реагирует на её действия.')
     split = forms.ChoiceField(label='Split', choices=[('validation', 'validation'), ('test', 'test')], initial='validation')
     model = forms.ChoiceField(label='Общая модель для этапов', required=False)
     dst = forms.ChoiceField(label='Модель состояния B (DST / extraction)', required=False)
@@ -63,8 +64,8 @@ class BenchmarkForm(StyledForm):
     response = forms.ChoiceField(label='Модель ответа R', required=False)
     device = forms.ChoiceField(label='Устройство', choices=[('cpu', 'CPU'), ('cuda', 'CUDA GPU')], initial='cpu')
     max_new_tokens = forms.IntegerField(label='Лимит генерации', min_value=1, max_value=1024, initial=192)
-    max_turns = forms.IntegerField(label='Максимум ходов rollout', min_value=1, initial=17,
-                                  help_text='Только для симулятора. В full и session проверяются все ходы выбранных эпизодов.')
+    max_turns = forms.IntegerField(label='Максимум ходов с симулятором', min_value=1, initial=17,
+                                  help_text='Только для симулятора. Для сообщений из датасета проверяются все записанные ходы.')
     seed = forms.IntegerField(label='Seed', min_value=0, max_value=4294967295, initial=42)
 
     def __init__(self, *args, **kwargs):
@@ -75,10 +76,16 @@ class BenchmarkForm(StyledForm):
 
     def clean(self):
         cleaned = super().clean()
-        if 'mode' not in cleaned:
+        if any(key not in cleaned for key in ('chain', 'context', 'user_source')):
+            return cleaned
+        try:
+            validate_evaluation(cleaned['chain'], cleaned['context'], cleaned['user_source'])
+        except ValueError:
+            self.add_error(None, 'Собственная предыстория требует полной цепочки DST → policy → response. '
+                                 'Сообщения симулятора доступны только с собственной предысторией.')
             return cleaned
         styles = set()
-        for stage in required_stages(cleaned['mode']):
+        for stage in required_stages(cleaned['chain']):
             field = 'dst' if stage == 'extraction' else stage
             key = cleaned.get(field) if field != 'history' else None
             item = self.catalog.get(key or cleaned.get('model'))
