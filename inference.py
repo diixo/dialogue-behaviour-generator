@@ -7,9 +7,11 @@ from pathlib import Path
 from data import SEGMENTS, encode, task_messages, ubar_header
 from dialogue_format import get_format
 from generator import State, SLOTS, USER_VALUES, FOLLOWUP
+from experiment_config import required_stages
 
 REACTIONS = {'DIRECT_ANSWER', 'MULTI_FACT', 'REFUSAL', 'NON_ANSWER', 'COUNTER_QUESTION',
-             'TOPIC_SHIFT', 'EXIT', 'ACKNOWLEDGEMENT', 'DIRECT_FOLLOWUP', 'NO_TURN'}
+             'TOPIC_SHIFT', 'EXIT', 'ACKNOWLEDGEMENT', 'DIRECT_FOLLOWUP', 'NO_TURN',
+             'GREETING', 'INFORM', 'QUESTION'}
 
 
 def validate_state(state):
@@ -176,9 +178,7 @@ class PredictorRouter:
                          for task, model in self.models.items()}
 
     def validate_mode(self, mode):
-        required = {'full': ('dst', 'policy', 'response'), 'rollout': ('dst', 'policy', 'response'),
-                    'policy_response': ('policy', 'response')}.get(mode, (mode,))
-        for task in required:
+        for task in required_stages(mode):
             if task not in self.models:
                 raise ValueError(f'No checkpoint configured for {task}')
             trained = self.models[task].task

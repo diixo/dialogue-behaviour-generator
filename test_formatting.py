@@ -28,18 +28,18 @@ class FormattingTests(unittest.TestCase):
                     self.assertEqual(json.loads(example['completion']), {
                         'observation': row['target_observation'], 'state': row['target_state'],
                     })
-                    self.assertEqual(example['next_turn'], row['turn'] + 1)
+                    self.assertEqual(example['next_turn'], row['turn'])
                     self.assertIn(json.dumps(row['state_before'], sort_keys=True), example['messages'][0]['content'])
                     self.assertEqual(example['messages'][-1], {'role': 'user', 'content': row['utterance']})
                     self.assertEqual(example['messages'][1:-1], row['history_before'])
                 elif view == 'policy':
-                    self.assertEqual(example['completion'], 'ASK(time_of_day)')
+                    self.assertEqual(example['completion'], serialize_action(row['target_action']))
                     self.assertEqual(example['messages'][1:], row['history'])
                 else:
                     self.assertEqual(example['completion'], row['target_response'])
                     self.assertEqual(example['messages'][1:], row['history'])
                     if view == 'response':
-                        self.assertIn('ASK(time_of_day)', example['messages'][0]['content'])
+                        self.assertIn(serialize_action(row['action']), example['messages'][0]['content'])
 
     def test_extracted_state_builds_next_policy_and_response_inputs(self):
         row = self.views['extraction'][0]

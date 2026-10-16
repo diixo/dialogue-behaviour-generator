@@ -117,6 +117,7 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
 
     manifest = {
         'schema_version': 1,
+        'dialogue_start': 'user',
         'task': task,
         'base_model': model_name,
         'style': style,
@@ -142,7 +143,7 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
             raise ValueError('Resume requires experiment.json in the output directory')
         previous = json.loads(config_path.read_text(encoding='utf-8'))
         for key in manifest:
-            if previous.get(key) != manifest[key]:
+            if previous.get(key, 'assistant' if key == 'dialogue_start' else None) != manifest[key]:
                 raise ValueError(f'Resume configuration differs: {key}')
     output.mkdir(parents=True, exist_ok=True)
 

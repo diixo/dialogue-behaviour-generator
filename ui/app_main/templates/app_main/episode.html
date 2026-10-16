@@ -5,11 +5,11 @@
 <section class="col-xl-5"><div class="panel"><div class="panel-heading"><h2 class="h6 mb-0">Диалог</h2><span class="small text-secondary">Выберите ход</span></div><div class="dialogue-list">
 {% for item in episode.turns %}<a class="dialogue-turn {% if item.index == selected %}selected{% endif %}" {% if item.index == selected %}aria-current="true"{% endif %} href="?turn={{ item.index }}">
   <div class="turn-label">Ход {{ item.index }} <span>{{ item.action.type }}{% if item.action.target %} · {{ item.action.target }}{% endif %}</span></div>
+  <div class="bubble user"><small>USER</small>{{ item.user }}</div>
   <div class="bubble assistant"><small>ASSISTANT</small>{{ item.assistant }}</div>
-  {% if item.user != None %}<div class="bubble user"><small>USER</small>{{ item.user }}</div>{% endif %}
 </a>{% endfor %}</div></div></section>
 <section class="col-xl-7"><div class="panel mb-3"><div class="panel-heading"><h2 class="h6 mb-0">Ход {{ selected }}</h2><span class="badge text-bg-light">{{ action }}</span></div>
-  <div class="p-3"><h3 class="h6">{% if extraction %}Изменения после ответа пользователя{% else %}Изменения после действия ассистента{% endif %}</h3>
+  <div class="p-3"><h3 class="h6">{% if extraction %}Изменения после сообщения пользователя{% else %}Изменения после действия ассистента{% endif %}</h3>
   {% include 'app_main/includes/differences.html' %}
   <details class="mt-3"><summary>Полное состояние до и после</summary><div class="row g-2 mt-1"><div class="col-lg-6"><pre>{{ before_json }}</pre></div><div class="col-lg-6"><pre>{{ after_json }}</pre></div></div></details>
   {% if extraction %}<details class="mt-2"><summary>Observation · {{ turn.observation.reaction }}</summary><pre class="mt-2">{{ observation_json }}</pre></details>{% endif %}

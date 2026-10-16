@@ -102,7 +102,7 @@ def _index(path_string, stamp, kind):
                 entry.update(
                     turns=len(turns), extraction=sum(t['user'] is not None for t in turns),
                     persona=row.get('persona', ''), scenario=row.get('scenario', ''),
-                    terminal=row.get('terminal_reason', ''), preview=turns[0]['assistant'],
+                    terminal=row.get('terminal_reason', ''), preview=row['messages'][0]['content'],
                     reactions=[t['observation']['reaction'] for t in turns if t.get('observation')],
                     actions=[t['action']['type'] for t in turns],
                     targets=[t['action'].get('target') or 'none' for t in turns],

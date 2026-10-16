@@ -13,8 +13,8 @@ def generate_chat_turn(predictor, turns, message=None, control=None):
         raise ValueError('Для чата с цепочкой B → A → R нужна модель UBAR.')
     if turns and turns[-1]['closed']:
         raise ValueError('Модель завершила разговор. Начните новый диалог.')
-    if bool(turns) != bool(message and message.strip()):
-        raise ValueError('Первая реплика принадлежит модели; затем требуется сообщение пользователя.')
+    if not message or not message.strip():
+        raise ValueError('Введите сообщение пользователя, чтобы продолжить диалог.')
 
     history, blocks = [], []
     for turn in turns:
@@ -23,9 +23,8 @@ def generate_chat_turn(predictor, turns, message=None, control=None):
         history.append({'role': 'assistant', 'content': turn['response']})
         blocks.append(turn['block'])
     memory = deepcopy(turns[-1]['memory']) if turns else State().snapshot()
-    current = ubar_user(message, predictor.style) if message is not None else ''
-    if message is not None:
-        history.append({'role': 'user', 'content': message})
+    current = ubar_user(message, predictor.style)
+    history.append({'role': 'user', 'content': message})
     stages = {}
 
     def predict(task, state, action=None):
@@ -45,7 +44,7 @@ def generate_chat_turn(predictor, turns, message=None, control=None):
         return prediction.text
 
     try:
-        state = parse_state(predict('dst', memory)) if turns else memory
+        state = parse_state(predict('dst', memory))
         current += segment('dst', state_text(state))
         action = parse_action(predict('policy', state))
         current += segment('policy', serialize_action(action))

@@ -2,6 +2,7 @@
 
 Examples (train checkpoints with trainer.py first):
   python benchmark.py --model runs/ubar --mode full --output runs/eval-ubar
+  python benchmark.py --model runs/ubar --mode session --output runs/session-ubar
   python benchmark.py --model runs/ubar --mode rollout --output runs/rollout-ubar
   python benchmark.py --model runs/dst --mode dst --output runs/eval-dst
   python benchmark.py --dst-model runs/dst --policy-model runs/policy \
@@ -9,8 +10,10 @@ Examples (train checkpoints with trainer.py first):
 
 Replay uses reference history and resets memory at each transition. response uses
 reference B,A; policy_response uses reference B; full predicts B,A,R after each
-user message. Initial B is supplied in all chains. rollout carries predicted
-memory, actions and replies forward; its simulator responds to actions, not text.
+user message, including the first message starting from empty memory. session uses
+recorded user messages with predicted memory, actions and replies carried forward.
+rollout also carries predicted context, but its simulator supplies subsequent user
+messages in response to actions, not text.
 Template metrics are finite-corpus proxies, not semantic scores for paraphrases.
 """
 
@@ -65,7 +68,7 @@ def new_record(episode, turn, reaction, expected_action):
 
 def predict(predictor, request, record, parser):
     task = request.task
-    entry = {'input': {'history': request.history, 'state': request.state, 'action': request.action}}
+    entry = {'input': deepcopy({'history': request.history, 'state': request.state, 'action': request.action})}
     record['stages'][task] = entry
     metrics = record['metrics']
     metrics[f'{task}.available'] = 1
@@ -176,19 +179,16 @@ def replay(episodes, predictor, mode, style, progress=None):
             index = turn['index']
             gold_state, gold_action = policy_row['state'], policy_row['target_action']
             history = policy_row['history']
-            user_block = '' if index == 0 else ubar_user(episode['turns'][index - 1]['user'], style)
+            user_block = ubar_user(turn['user'], style)
             gold_block = (user_block + segment('dst', state_text(gold_state)) +
                           segment('policy', serialize_action(gold_action)) + segment('response', turn['assistant']))
-            if mode in ('dst', 'extraction') and index == 0:
-                previous_blocks.append(gold_block)
-                continue
-            source = extractions.get(index)
-            reaction = source['target_observation']['reaction'] if source else 'OPENING'
+            source = extractions[index]
+            reaction = source['target_observation']['reaction']
             record = new_record(episode, index, reaction, gold_action)
             record['reference'] = {'state': gold_state, 'action': gold_action, 'response': turn['assistant']}
             state, action, response = gold_state, gold_action, None
             current = user_block
-            if mode in ('dst', 'extraction', 'full') and source is not None:
+            if mode in ('dst', 'extraction', 'full'):
                 task = 'extraction' if mode == 'extraction' else 'dst'
                 result = predict(predictor, Request(task, history, source['state_before'],
                                  session=previous_blocks + [current]), record,
@@ -233,13 +233,93 @@ def replay(episodes, predictor, mode, style, progress=None):
     return records, []
 
 
+def predict_chain(predictor, history, memory, previous_blocks, current, record):
+    """Generate B/A/R using only supplied model context; references are for scoring."""
+    reference = record['reference']
+    state = predict(predictor, Request('dst', history, memory,
+                    session=previous_blocks + [current]), record, parse_state)
+    score_state(record, state, reference['state'])
+    if state is None:
+        blocked(record, 'policy')
+        action = None
+    else:
+        current += segment('dst', state_text(state))
+        action = predict(predictor, Request('policy', history, state,
+                         session=previous_blocks + [current]), record, parse_action)
+    score_action(record, action, reference['action'], reference['state'])
+    if action is None:
+        blocked(record, 'response')
+        response = None
+    else:
+        current += segment('policy', serialize_action(action))
+        response = predict(predictor, Request('response', history, state, action,
+                           previous_blocks + [current]), record, parse_response)
+    score_response(record, response, reference['action'], action, reference.get('response'))
+    if response is not None:
+        current += segment('response', response)
+    return state, action, response, current
+
+
+def session(episodes, predictor, style, progress=None):
+    """Fixed recorded users, generated history; unavailable remaining turns count as failures."""
+    records, outcomes = [], []
+    for episode_number, episode in enumerate(episodes):
+        memory = State()
+        history, previous_blocks, episode_records = [], [], []
+        terminal, generated_turns = None, 0
+        for turn in episode['turns']:
+            if progress:
+                progress(completed_episodes=episode_number, total_episodes=len(episodes),
+                         episode_id=episode['episode_id'], turn=turn['index'])
+            expected = {key: turn['action'][key] for key in ('type', 'target')}
+            record = new_record(episode, turn['index'], turn['observation']['reaction'], expected)
+            record['reference'] = {'state': turn['state_before'], 'action': expected,
+                                   'response': turn['assistant']}
+            episode_records.append(record)
+            if terminal is not None:
+                # Keep the complete reference denominator; never restart from gold memory.
+                for stage in ('dst', 'policy', 'response'):
+                    blocked(record, stage)
+                    record['stages'][stage]['failure'] = 'session_ended:' + terminal
+                record['errors'].append('session.after_' + terminal)
+                score_state(record, None, turn['state_before'])
+                score_action(record, None, expected, turn['state_before'])
+                score_response(record, None, expected, None, turn['assistant'])
+                continue
+            history.append({'role': 'user', 'content': turn['user']})
+            state, action, response, block = predict_chain(
+                predictor, history, memory.snapshot(), previous_blocks, ubar_user(turn['user'], style), record)
+            if response is None:
+                terminal = 'invalid_generation'
+                continue
+            previous_blocks.append(block)
+            history.append({'role': 'assistant', 'content': response})
+            memory = State.from_snapshot(state)
+            commit_action(memory, Action(**action))
+            generated_turns += 1
+            if action['type'] == 'CLOSE':
+                terminal = 'appropriate_close' if expected['type'] == 'CLOSE' else 'premature_close'
+        records.extend(episode_records)
+        outcomes.append({'episode_id': episode['episode_id'], 'turns': len(episode_records),
+                         'generated_turns': generated_turns, 'terminal': terminal or 'reference_exhausted',
+                         'policy_perfect': all(r['metrics']['action.exact'] == 1 for r in episode_records),
+                         'response_template_perfect': all(r['metrics']['response.expected_action_template'] == 1
+                                                          for r in episode_records)})
+    return records, outcomes
+
+
 def rollout(episodes, predictor, style, seed, max_turns, progress=None):
     records, outcomes = [], []
     for episode_number, episode in enumerate(episodes):
         truth, memory = State(), State()
         simulator = UserSimulator(random.Random(f'{seed}:{episode["episode_id"]}'), episode['hidden_user'])
-        history, previous_blocks, current = [], [], ''
-        reaction, terminal = 'OPENING', 'horizon_limit'
+        opening = episode['turns'][0]
+        # Gold observation is evaluator-only; the model receives text and empty memory.
+        observe(truth, opening['observation'])
+        history = [{'role': 'user', 'content': opening['user']}]
+        previous_blocks = []
+        current = ubar_user(opening['user'], style)
+        reaction, terminal = opening['observation']['reaction'], 'horizon_limit'
         episode_records = []
         for index in range(max_turns):
             if progress:
@@ -249,34 +329,15 @@ def rollout(episodes, predictor, style, seed, max_turns, progress=None):
             record = new_record(episode, index, reaction, expected)
             record['reference'] = {'state': truth.snapshot(), 'action': expected}
             episode_records.append(record)
-            state = memory.snapshot()
-            if index:
-                state = predict(predictor, Request('dst', history, state,
-                                session=previous_blocks + [current]), record, parse_state)
-                score_state(record, state, truth.snapshot())
-            if state is None:
-                blocked(record, 'policy')
-                action = None
-            else:
-                memory = State.from_snapshot(state)
-                current += segment('dst', state_text(state))
-                action = predict(predictor, Request('policy', history, state,
-                                 session=previous_blocks + [current]), record, parse_action)
-            score_action(record, action, expected, truth.snapshot())
-            if action is None:
-                blocked(record, 'response')
-                response = None
-            else:
-                current += segment('policy', serialize_action(action))
-                response = predict(predictor, Request('response', history, state, action,
-                                   previous_blocks + [current]), record, parse_response)
-            score_response(record, response, expected, action)
+            state, action, response, block = predict_chain(
+                predictor, history, memory.snapshot(), previous_blocks, current, record)
             if response is None:
                 terminal = 'invalid_generation'
                 break
-            previous_blocks.append(current + segment('response', response))
+            previous_blocks.append(block)
             history.append({'role': 'assistant', 'content': response})
             actual_action = Action(**action)
+            memory = State.from_snapshot(state)
             commit_action(memory, actual_action)
             commit_action(truth, actual_action)
             if actual_action.type == 'CLOSE':
@@ -332,9 +393,18 @@ def run_benchmark(episodes, predictor, *, mode='full', seed=42, max_turns=17, pr
         raise ValueError('Choose a valid mode, positive horizon and nonempty episodes')
     if len({episode['episode_id'] for episode in episodes}) != len(episodes):
         raise ValueError('Duplicate evaluation episode IDs')
+    for episode in episodes:
+        turns = episode['turns']
+        if not turns or any(not isinstance(turn.get('user'), str) or not turn['user'].strip() or
+                            'state_before_user' not in turn or not turn.get('observation') for turn in turns):
+            raise ValueError(f'{episode["episode_id"]}: benchmark requires user-first episodes; regenerate the dataset')
+        if turns[0]['state_before_user'] != State().snapshot():
+            raise ValueError(f'{episode["episode_id"]}: memory before the first user message must be empty')
     style = getattr(predictor, 'style', 'plain')
     if mode == 'rollout':
         records, outcomes = rollout(episodes, predictor, style, seed, max_turns, progress)
+    elif mode == 'session':
+        records, outcomes = session(episodes, predictor, style, progress)
     else:
         records, outcomes = replay(episodes, predictor, mode, style, progress)
     if progress:
@@ -344,20 +414,31 @@ def run_benchmark(episodes, predictor, *, mode='full', seed=42, max_turns=17, pr
               'splits': sorted({ep['split'] for ep in episodes}), 'corpus_hash': corpus_hash(episodes),
               'episodes': len(episodes), 'evaluated_turns': len(records),
               'models': getattr(predictor, 'metadata', {}),
-              'context': 'predicted_history_and_memory' if mode == 'rollout' else 'reference_history_per_transition',
-              'initial_state': 'provided', 'metrics': aggregate(records),
+              'context': {'rollout': 'predicted_history_and_memory',
+                          'session': 'predicted_history_with_recorded_users'}.get(mode, 'reference_history_per_transition'),
+              'initial_state': 'empty_before_first_user',
+              'metrics': aggregate(records),
               'errors': errors, 'groups': groups, 'data_review_candidates': requests,
-              'rollout_outcomes': outcomes,
+              'rollout_outcomes': outcomes if mode == 'rollout' else [],
               'limitations': ['Shared-template corpus; this does not measure unseen-language generalization.',
                              'Response template matches are proxies; unknown paraphrases need manual review.',
-                             'Simulator reacts to predicted actions, not the semantic content of replies.',
                              'Behaviour violation rates condition on valid actions; inspect stage coverage.',
                              'Data review candidates are diagnostics, not proof that more data will fix an error.']}
+    if mode == 'rollout':
+        report['limitations'].append('Simulator reacts to predicted actions, not the semantic content of replies.')
+    if mode == 'session':
+        report['session_outcomes'] = outcomes
+        report['limitations'].extend([
+            'Recorded user messages do not adapt to generated questions; references describe the recorded trajectory.',
+            'After invalid generation or CLOSE, remaining recorded turns are unavailable and score zero.',
+            'All recorded turns are scored; max_turns applies only to simulator rollout.'])
     if outcomes:
-        report['rollout_summary'] = {'termination_counts': dict(Counter(o['terminal'] for o in outcomes)),
+        report[mode + '_summary'] = {'termination_counts': dict(Counter(o['terminal'] for o in outcomes)),
                                     'policy_perfect_episodes': sum(o['policy_perfect'] for o in outcomes),
                                     'response_template_perfect_episodes': sum(
                                         o['response_template_perfect'] for o in outcomes)}
+        if mode == 'session':
+            report['session_summary']['generated_turns'] = sum(o['generated_turns'] for o in outcomes)
     return report, records
 
 

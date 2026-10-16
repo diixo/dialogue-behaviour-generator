@@ -95,7 +95,7 @@ class JobIntegrationTests(unittest.TestCase):
             control = JobControl(temporary)
             (Path(temporary) / 'stop.request').touch()
             oracle = ReplayOracle(episode)
-            for mode in ('full', 'rollout'):
+            for mode in ('full', 'session', 'rollout'):
                 with self.assertRaises(JobCancelled):
                     run_benchmark([episode], oracle, mode=mode, progress=control.benchmark_progress)
             self.assertEqual(oracle.requests, [])

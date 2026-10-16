@@ -92,7 +92,7 @@ class ObjectiveTests(unittest.TestCase):
         episode = self.episode
         blocks = []
         for i, turn in enumerate(episode['turns']):
-            user = [] if i == 0 else encode(tokenizer, ubar_user(episode['turns'][i - 1]['user']))
+            user = encode(tokenizer, ubar_user(turn['user']))
             output = encode(tokenizer, segment('dst', state_text(turn['state_before'])) +
                             segment('policy', serialize_action(turn['action'])) +
                             segment('response', turn['assistant']))
@@ -100,6 +100,8 @@ class ObjectiveTests(unittest.TestCase):
         size = len(encode(tokenizer, ubar_header())) + max(
             len(a) + len(b) for a, b in zip(blocks, blocks[1:])) + 1
         full = SessionDataset([episode], tokenizer, max_length=10000)
+        self.assertEqual(tokenizer.decode(full[0]['input_ids']),
+                         ubar_header() + ''.join(tokenizer.decode(block) for block in blocks) + tokenizer.eos_token)
         windows = SessionDataset([episode], tokenizer, max_length=size)
         self.assertGreater(len(windows), 1)
         targets = lambda ds: [token for item in ds for token in item['labels'].tolist() if token != -100]
@@ -165,9 +167,11 @@ class ObjectiveTests(unittest.TestCase):
 class BenchmarkTests(unittest.TestCase):
     def setUp(self):
         self.episode = generate_episode(random.Random(42), 'held-out', 'test')
+        # Starting with the user is a data contract, not an episode option.
+        self.episode.pop('dialogue_start')
 
     def test_oracle_replay_all_modes_and_alignment(self):
-        for mode in ('dst', 'extraction', 'policy', 'response', 'history', 'policy_response', 'full'):
+        for mode in ('dst', 'extraction', 'policy', 'response', 'history', 'policy_response', 'full', 'session'):
             with self.subTest(mode=mode):
                 oracle = ReplayOracle(self.episode)
                 report, records = run_benchmark([self.episode], oracle, mode=mode)
@@ -175,14 +179,75 @@ class BenchmarkTests(unittest.TestCase):
                 self.assertEqual(report['corpus_hash'], run_benchmark(
                     [self.episode], ReplayOracle(self.episode), mode=mode)[0]['corpus_hash'])
                 self.assertTrue(records)
+                self.assertEqual(len(records), len(self.episode['turns']))
+                self.assertEqual(report['initial_state'], 'empty_before_first_user')
                 for key, metric in report['metrics'].items():
                     self.assertEqual(metric['value'], 0 if key.startswith('behaviour.') else 1, key)
-                if mode == 'full':
+                if mode in ('full', 'session'):
                     dst = [request for request in oracle.requests if request.task == 'dst']
                     source = compile_views(self.episode)['extraction'][0]
                     self.assertEqual(dst[0].state, source['state_before'])
+                    self.assertEqual(dst[0].state, State().snapshot())
+                    self.assertEqual(len(dst), len(self.episode['turns']))
                     self.assertNotIn('<|state|>', dst[0].session[-1])
                     self.assertEqual(dst[0].history[-1]['content'], self.episode['turns'][0]['user'])
+                if mode == 'session':
+                    self.assertEqual(report['context'], 'predicted_history_with_recorded_users')
+                    self.assertEqual(report['session_summary']['generated_turns'], len(records))
+                    self.assertEqual(report['session_outcomes'][0]['terminal'], 'appropriate_close')
+
+    def test_session_carries_generated_memory_and_history_without_reference_fallback(self):
+        requests = []
+        def model(request):
+            requests.append(deepcopy(request))
+            if request.task == 'dst':
+                state = deepcopy(request.state)
+                state['topic'] = 'python'
+                return Prediction(state_text(state))
+            if request.task == 'policy':
+                return Prediction('ASK(mood)' if request.state['last_action'] is None else 'ACK')
+            return Prediction('A model response outside the reference templates.')
+        report, records = run_benchmark([self.episode], model, mode='session', max_turns=1)
+        dst = [r for r in requests if r.task == 'dst']
+        self.assertEqual(len(dst), len(self.episode['turns']))
+        self.assertEqual(dst[0].state, State().snapshot())
+        self.assertEqual(dst[1].state['pending'], 'mood')
+        self.assertEqual(dst[1].state['attempts']['mood'], 1)
+        self.assertEqual(dst[1].state['topic'], 'python')
+        self.assertEqual(dst[1].state['known'], State().snapshot()['known'])
+        self.assertEqual(dst[1].history, [self.episode['messages'][0],
+            {'role': 'assistant', 'content': 'A model response outside the reference templates.'},
+            {'role': 'user', 'content': self.episode['turns'][1]['user']}])
+        self.assertIn(segment('policy', 'ASK(mood)'), dst[1].session[0])
+        self.assertNotIn(self.episode['turns'][0]['assistant'], dst[1].session[0])
+        self.assertEqual(records[0]['stages']['dst']['input']['history'], [self.episode['messages'][0]])
+        self.assertEqual(report['session_outcomes'][0]['terminal'], 'reference_exhausted')
+
+    def test_session_failure_or_early_close_keeps_all_turns_in_denominator(self):
+        for failure in ('dst', 'policy', 'response', 'close'):
+            calls = []
+            def model(request):
+                calls.append(request)
+                if request.task == failure:
+                    return Prediction('invalid', stopped=False)
+                if request.task == 'dst':
+                    return Prediction(state_text(request.state))
+                if request.task == 'policy':
+                    return Prediction('CLOSE' if failure == 'close' else 'ASK(mood)')
+                return Prediction('Bye!')
+            with self.subTest(failure=failure):
+                report, records = run_benchmark([self.episode], model, mode='session')
+                self.assertEqual(len(records), len(self.episode['turns']))
+                self.assertLessEqual(len(calls), 3)
+                self.assertEqual(report['metrics']['state.exact']['denominator'], len(records))
+                self.assertEqual(report['metrics']['action.exact']['denominator'], len(records))
+                self.assertEqual(report['session_outcomes'][0]['terminal'],
+                                 'premature_close' if failure == 'close' else 'invalid_generation')
+                for record in records[1:]:
+                    self.assertEqual(record['metrics']['dst.available'], 0)
+                    self.assertEqual(record['metrics']['state.exact'], 0)
+                    self.assertEqual(record['metrics']['action.exact'], 0)
+                    self.assertEqual(record['metrics']['response.reference_exact'], 0)
 
     def test_invalid_or_unterminated_state_blocks_downstream_without_oracle_fallback(self):
         for prediction in (Prediction('{}'), Prediction(state_text(State().snapshot()), stopped=False)):
@@ -190,8 +255,8 @@ class BenchmarkTests(unittest.TestCase):
             def broken(request):
                 return prediction if request.task == 'dst' else oracle(request)
             report, records = run_benchmark([self.episode], broken, mode='full')
-            self.assertEqual(len([r for r in oracle.requests if r.task == 'policy']), 1)
-            for record in records[1:]:
+            self.assertEqual(len([r for r in oracle.requests if r.task == 'policy']), 0)
+            for record in records:
                 self.assertEqual(record['metrics']['state.exact'], 0)
                 self.assertEqual(record['metrics']['policy.available'], 0)
                 self.assertEqual(record['metrics']['action.exact'], 0)
@@ -211,8 +276,8 @@ class BenchmarkTests(unittest.TestCase):
                 return Prediction(response_variants(request.action)[0])
             return oracle(request)
         report, records = run_benchmark([self.episode], mistaken, mode='full')
-        policies = [r for r in calls if r.task == 'policy'][1:]
-        responses = [r for r in calls if r.task == 'response'][1:]
+        policies = [r for r in calls if r.task == 'policy']
+        responses = [r for r in calls if r.task == 'response']
         self.assertTrue(all(r.state['wants_exit'] for r in policies))
         self.assertTrue(all(r.action['type'] == 'CLOSE' for r in responses))
         self.assertGreater(report['errors']['state.wants_exit'], 0)
@@ -236,21 +301,54 @@ class BenchmarkTests(unittest.TestCase):
             return Prediction(response_variants(request.action)[0])
         report, records = run_benchmark([self.episode], model, mode='rollout', seed=7, max_turns=3)
         dst = [r for r in requests if r.task == 'dst']
-        self.assertEqual(dst[0].state['pending'], 'mood')
-        self.assertEqual(dst[1].state['attempts']['mood'], 2)
-        self.assertEqual(dst[0].history[0]['content'], response_variants({'type': 'ASK', 'target': 'mood'})[0])
-        self.assertEqual(records[0]['environment']['user'], dst[0].history[-1]['content'])
+        self.assertEqual(dst[0].state, State().snapshot())
+        self.assertEqual(dst[0].history, [self.episode['messages'][0]])
+        self.assertEqual(dst[0].session, [ubar_user(self.episode['turns'][0]['user'])])
+        self.assertEqual(dst[1].state['pending'], 'mood')
+        self.assertEqual(dst[2].state['attempts']['mood'], 2)
+        self.assertEqual(dst[1].history[1]['content'], response_variants({'type': 'ASK', 'target': 'mood'})[0])
+        self.assertEqual(records[0]['environment']['user'], dst[1].history[-1]['content'])
         self.assertEqual(report['rollout_outcomes'][0]['terminal'], 'horizon_limit')
         self.assertEqual(report, run_benchmark([self.episode], model, mode='rollout', seed=7, max_turns=3)[0])
 
     def test_rollout_invalid_generation_and_premature_close_are_not_success(self):
         def close(request):
+            if request.task == 'dst':
+                return Prediction(state_text(request.state))
             return Prediction('CLOSE') if request.task == 'policy' else Prediction(response_variants(
                 {'type': 'CLOSE', 'target': None})[0])
         report, _ = run_benchmark([self.episode], close, mode='rollout')
         self.assertEqual(report['rollout_outcomes'][0]['terminal'], 'premature_close')
         report, _ = run_benchmark([self.episode], lambda r: Prediction('not an action'), mode='rollout')
         self.assertEqual(report['rollout_outcomes'][0]['terminal'], 'invalid_generation')
+
+    def test_first_state_failure_blocks_rollout_before_any_action(self):
+        calls = []
+        def invalid_state(request):
+            calls.append(request)
+            return Prediction('{}')
+        report, records = run_benchmark([self.episode], invalid_state, mode='rollout')
+        self.assertEqual([r.task for r in calls], ['dst'])
+        self.assertEqual(calls[0].history, [self.episode['messages'][0]])
+        self.assertEqual(calls[0].state, State().snapshot())
+        self.assertEqual(report['rollout_outcomes'][0]['terminal'], 'invalid_generation')
+        self.assertEqual(records[0]['metrics']['policy.available'], 0)
+        self.assertEqual(records[0]['metrics']['response.available'], 0)
+
+    def test_invalid_episode_start_is_rejected_before_prediction(self):
+        missing_memory = deepcopy(self.episode)
+        del missing_memory['turns'][0]['state_before_user']
+        missing_user = deepcopy(self.episode)
+        missing_user['turns'][0]['user'] = None
+        supplied_facts = deepcopy(self.episode)
+        supplied_facts['turns'][0]['state_before_user']['known']['mood'] = 'happy'
+        for episode in (missing_memory, missing_user, supplied_facts):
+            for mode in ('full', 'session', 'rollout'):
+                with self.subTest(mode=mode, episode=episode['turns'][0]):
+                    oracle = ReplayOracle(self.episode)
+                    with self.assertRaisesRegex(ValueError, 'user-first episodes|must be empty'):
+                        run_benchmark([episode], oracle, mode=mode)
+                    self.assertEqual(oracle.requests, [])
 
 
 class TrainerIntegrationTests(unittest.TestCase):
@@ -293,7 +391,7 @@ class TrainerIntegrationTests(unittest.TestCase):
                     (data_dir / 'test.episodes.json').write_text(json.dumps([held_out]), encoding='utf-8')
                     report_dir = Path(temporary) / f'benchmark-{task}'
                     args = ['benchmark.py', '--model', str(output), '--mode',
-                            'dst' if task == 'dst' else 'full', '--data', str(data_dir),
+                            'dst' if task == 'dst' else 'session', '--data', str(data_dir),
                             '--output', str(report_dir), '--max-new-tokens', '2', '--local-files-only']
                     with patch('sys.argv', args), contextlib.redirect_stdout(io.StringIO()):
                         benchmark_main()

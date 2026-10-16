@@ -165,6 +165,10 @@ class QueueTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.job_config()['model'], str(path.resolve()))
         self.assertFalse(BenchmarkForm(data | {'model': '../outside'}).is_valid())
+        self.assertFalse(BenchmarkForm(data | {'mode': 'session'}).is_valid())
+        form = BenchmarkForm(data | {'model': ubar, 'mode': 'session'})
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.job_config()['mode'], 'session')
 
     def test_resume_keeps_budget_and_forks_artifacts(self):
         identifier, path = self.checkpoint()

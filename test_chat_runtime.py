@@ -9,6 +9,7 @@ from unittest.mock import patch
 from chat_runtime import generate_chat_turn
 from data import segment, state_text, ubar_user
 from inference import Prediction
+from generator import State
 from job_runtime import JobCancelled, JobControl
 from run_job import execute
 
@@ -29,7 +30,26 @@ class ScriptedPredictor:
 
 class ChatRuntimeTests(TestCase):
     def opening(self):
-        return generate_chat_turn(ScriptedPredictor('ASK(time_of_day)', 'What time is it for you?'), [])
+        return generate_chat_turn(ScriptedPredictor(state_text(State().snapshot()),
+                                  'ASK(time_of_day)', 'What time is it for you?'), [], 'Hi!')
+
+    def test_first_user_message_is_extracted_before_action_and_response(self):
+        state = State().snapshot()
+        state['known']['time_of_day'] = 'evening'
+        state['statuses']['time_of_day'] = 'known'
+        message = 'It is evening here.'
+        model = ScriptedPredictor(state_text(state), 'ASK(activity)', 'What are you doing?')
+        first = generate_chat_turn(model, [], message)
+        self.assertEqual(first['status'], 'completed')
+        self.assertEqual([r.task for r in model.requests], ['dst', 'policy', 'response'])
+        self.assertEqual(model.requests[0].history, [{'role': 'user', 'content': message}])
+        self.assertEqual(model.requests[0].state, State().snapshot())
+        self.assertEqual(model.requests[0].session, [ubar_user(message)])
+        self.assertEqual(model.requests[1].state, state)
+        self.assertEqual(first['memory']['known']['time_of_day'], 'evening')
+        for message in (None, '', '  '):
+            with self.assertRaises(ValueError):
+                generate_chat_turn(ScriptedPredictor(), [], message)
 
     def test_model_history_and_memory_carry_forward_without_reference_data(self):
         first = self.opening()
@@ -46,6 +66,7 @@ class ChatRuntimeTests(TestCase):
         second = generate_chat_turn(model, [first], message)
         self.assertEqual([request.task for request in model.requests], ['dst', 'policy', 'response'])
         self.assertEqual(model.requests[0].history, [
+            {'role': 'user', 'content': first['message']},
             {'role': 'assistant', 'content': first['response']}, {'role': 'user', 'content': message}])
         self.assertEqual(model.requests[0].state, first['memory'])
         self.assertEqual(model.requests[0].session, [first['block'], ubar_user(message)])
@@ -76,7 +97,8 @@ class ChatRuntimeTests(TestCase):
         self.assertNotIn('block', failed)
         for output in (Prediction('Incomplete', stopped=False), Prediction(''), Prediction('Error', error='bad output')):
             with self.subTest(output=output):
-                failed = generate_chat_turn(ScriptedPredictor('ASK(time_of_day)', output), [])
+                failed = generate_chat_turn(ScriptedPredictor(state_text(State().snapshot()),
+                                            'ASK(time_of_day)', output), [], 'Hi!')
                 self.assertEqual(failed['status'], 'failed')
                 self.assertNotIn('memory', failed)
 
@@ -93,13 +115,14 @@ class ChatRuntimeTests(TestCase):
                 style = 'plain'
                 __call__ = staticmethod(stop_after_prediction)
             with self.assertRaises(JobCancelled):
-                generate_chat_turn(CancellingPredictor(), [], control=control)
+                generate_chat_turn(CancellingPredictor(), [], 'Hi!', control=control)
             self.assertEqual(len(model.requests), 1)
 
     def test_worker_chat_dispatch_needs_no_dataset(self):
         with TemporaryDirectory() as directory:
-            with patch('inference.HFPredictor', return_value=ScriptedPredictor('CLOSE', 'Bye!')) as load:
+            with patch('inference.HFPredictor', return_value=ScriptedPredictor(
+                    state_text(State().snapshot()), 'CLOSE', 'Bye!')) as load:
                 result = execute({'kind': 'chat', 'config': {'model': 'local-checkpoint', 'device': 'cpu',
-                                  'max_new_tokens': 192, 'turns': [], 'message': None}}, JobControl(directory))
+                                  'max_new_tokens': 192, 'turns': [], 'message': 'Bye!'}}, JobControl(directory))
             self.assertEqual(result['status'], 'completed')
             load.assert_called_once_with('local-checkpoint', device='cpu', local_files_only=True, max_new_tokens=192)

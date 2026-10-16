@@ -29,8 +29,9 @@ Chat with a trained UBAR model through the same worker and inspect each turn's s
 | `history` | History → assistant reply |
 
 Within an episode, `extraction[t].target_state` equals the `state` of
-`policy[t+1]` and `response[t+1]`; `history[t+1]` is the corresponding direct-reply
-example. `next_turn` records this link. The initial assistant turn has no extraction.
+`policy[t]` and `response[t]`; `history[t]` is the corresponding direct-reply
+example. `next_turn` records the linked assistant turn. The user always starts;
+extraction processes the first message from empty memory before any assistant action.
 State contains observed facts and dialogue memory, never undisclosed simulator facts.
 
 Each `.jsonl` is accompanied by a `.json` array with identical records and `indent=2`.
@@ -56,7 +57,8 @@ Generation and SFT export themselves require only the Python standard library.
 
 Training tasks: `dst` (state only), `extraction`, `policy`, `response`, `history`, `ubar`.
 Benchmark tasks separately or use `response` (reference state/action), `policy_response`
-(reference state), `full` (predicted state/action), and `rollout` (own dialogue context).
+(reference state), `full` (predicted state/action with reference history), `session`
+(recorded user messages with predicted history/memory), and `rollout` (simulated users with predicted context).
 Reports group errors by reaction, action, target and depth; see `--help` for options.
 
 `data.py` provides individual datasets, `DialogueChainDataset` and `chain_collate_batch`
@@ -93,12 +95,12 @@ conversations separately before drawing conclusions about generalization.
 ```text
 extraction[episode_id, t]
           ↕
-policy[episode_id, t + 1]
-response[episode_id, t + 1]
-history[episode_id, t + 1]
+policy[episode_id, t]
+response[episode_id, t]
+history[episode_id, t]
 ```
 
-`extraction[t]` разбирает пользовательский ответ после реплики ассистента на ходе `t`. Следующее действие выбирается уже на ходе `t+1`. Это выполняется для всех 9627 обучающих примеров `extraction`.
+`extraction[t]` разбирает сообщение пользователя перед действием и ответом ассистента на том же ходе `t`, включая самый первый запрос.
 
 
 Я бы сравнил три эксперимента:

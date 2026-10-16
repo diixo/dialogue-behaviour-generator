@@ -23,12 +23,13 @@ class ChatForm(forms.Form):
     def chat_config(self):
         item = self.catalog[self.cleaned_data['model']]
         return {'model': str(item['path']), 'model_label': item['label'],
+                'trained_dialogue_start': item['run']['config'].get('dialogue_start', 'assistant'),
                 'device': self.cleaned_data['device'], 'max_new_tokens': self.cleaned_data['max_new_tokens']}
 
 
 class MessageForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid.uuid4, widget=forms.HiddenInput)
     previous_job = forms.UUIDField(required=False, widget=forms.HiddenInput)
-    message = forms.CharField(label='Ваше сообщение', required=False, max_length=2000,
+    message = forms.CharField(label='Ваше сообщение', max_length=2000,
                               widget=forms.Textarea(attrs={'rows': 3, 'class': 'form-control',
                                                            'placeholder': 'Введите сообщение…'}))

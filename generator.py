@@ -1,4 +1,4 @@
-"""Dialogue Behaviour Generator v0.2 — standalone, standard-library only.
+"""Dialogue Behaviour Generator v0.3 — standalone, standard-library only.
 
 Usage: python generator.py --out output --train 2000 --validation 200 --test 200 --seed 42
 All train/validation/test episodes are generated separately. Current template families
@@ -109,6 +109,27 @@ class ResponseRealizer:
 
 class UserSimulator:
     def __init__(self, rng, hidden): self.rng, self.hidden = rng, hidden
+
+    def opening(self):
+        """An unsolicited first message; only disclosed facts become observable."""
+        typ = self.weighted([('GREETING', .15), ('INFORM', .30), ('MULTI_FACT', .30),
+                             ('TOPIC_SHIFT', .10), ('QUESTION', .07), ('REFUSAL', .04), ('EXIT', .04)])
+        if typ == 'GREETING':
+            return self.rng.choice(['Hi!', 'Hello!', 'Hi, can we chat?']), self.obs(typ)
+        if typ in ('INFORM', 'MULTI_FACT'):
+            slots = self.rng.sample(SLOTS, 1 if typ == 'INFORM' else self.rng.choice([2, 3]))
+            return ' '.join(self.utterance(slot) for slot in slots), self.obs(
+                typ, facts={slot: self.hidden[slot] for slot in slots})
+        if typ == 'TOPIC_SHIFT':
+            return 'Hi, I am learning Python.', self.obs(typ, new_topic='python')
+        if typ == 'QUESTION':
+            return 'Hello! How are you?', self.obs(typ, user_question=True)
+        if typ == 'REFUSAL':
+            slot = self.rng.choice(SLOTS)
+            topic = {'time_of_day': 'the time of day', 'activity': 'what I am doing', 'mood': 'my mood'}[slot]
+            return f'Hi. I would rather not talk about {topic}.', self.obs(typ, refused=slot)
+        return 'Sorry, I have to go now.', self.obs(typ, exit=True)
+
     def response(self, action, state):
         r=self.rng
         if action.type == 'CLOSE': return None, {'reaction':'NO_TURN','facts':{},'new_topic':None,'refused':None,'user_question':False,'exit':False}
@@ -208,44 +229,37 @@ def commit_action(state, action):
 def episode_messages(turns):
     messages=[]
     for turn in turns:
+        messages.append({'role':'user','content':turn['user']})
         messages.append({'role':'assistant','content':turn['assistant']})
-        if turn['user'] is not None:
-            messages.append({'role':'user','content':turn['user']})
     return messages
 
 def generate_episode(rng, eid, split, max_turns=16):
+    if max_turns <= 0:
+        raise ValueError('max_turns must be positive')
     hidden={k:rng.choice([v for v,_ in USER_VALUES[k]]) for k in SLOTS}
     state=State()
     sim=UserSimulator(rng,hidden)
     realizer=ResponseRealizer()
     turns=[]
-    for i in range(max_turns):
-        state_before=state.snapshot()
+    user, observation = sim.opening()
+    for i in range(max_turns + 1):
+        before_user = state.snapshot()
+        observe(state, observation)
         action=select_action(state)
-        # selection can normalize exhausted ambiguous slots; snapshot after that normalization
+        if i == max_turns and action.type != 'CLOSE':
+            action = Action('CLOSE', reason='horizon_limit')
         state_before=state.snapshot()
         assistant=realizer.realize(action,state,rng)
         commit_action(state,action)
+        turns.append({'index':i, 'state_before_user':before_user,
+                      'state_before':state_before, 'action':action.json(),
+                      'assistant':assistant, 'user':user, 'observation':observation,
+                      'state_after':state.snapshot()})
         if action.type=='CLOSE':
-            turns.append({'index':i,'state_before':state_before,'action':action.json(),
-                          'assistant':assistant,'user':None,'observation':None,
-                          'state_after':state.snapshot()})
             break
-        user,obs=sim.response(action,state)
-        observe(state,obs)
-        turns.append({'index':i,'state_before':state_before,'action':action.json(),
-                      'assistant':assistant,'user':user,'observation':obs,
-                      'state_after':state.snapshot()})
-    else:
-        # bounded horizon: force explicit terminal action, avoiding incomplete episodes
-        before=state.snapshot()
-        action=Action('CLOSE',reason='horizon_limit')
-        assistant=realizer.realize(action,state,rng)
-        commit_action(state,action)
-        turns.append({'index':max_turns,'state_before':before,'action':action.json(),
-                      'assistant':assistant,'user':None,'observation':None,
-                      'state_after':state.snapshot()})
-    return {'episode_id':eid,'split':split,'persona':'friendly_curious',
+        user, observation = sim.response(action, state)
+    return {'schema_version':2, 'dialogue_start':'user',
+            'episode_id':eid,'split':split,'persona':'friendly_curious',
             'scenario':'daily_smalltalk','hidden_user':hidden,'turns':turns,
             'messages':episode_messages(turns),
             'terminal_reason':turns[-1]['action']['reason']}
@@ -254,6 +268,13 @@ def compile_views(ep):
     policy=[]; response=[]; history_only=[]; extraction=[]
     history=[]
     for turn in ep['turns']:
+        extraction.append({'episode_id':ep['episode_id'], 'turn':turn['index'],
+                           'next_turn':turn['index'],
+                           'history_before':list(history), 'utterance':turn['user'],
+                           'state_before':deepcopy(turn['state_before_user']),
+                           'target_observation':deepcopy(turn['observation']),
+                           'target_state':deepcopy(turn['state_before'])})
+        history.append({'role':'user', 'content':turn['user']})
         a=turn['action']
         common={'episode_id':ep['episode_id'],'turn':turn['index'],'persona':ep['persona'],
                 'history':list(history)}
@@ -264,44 +285,24 @@ def compile_views(ep):
                          'target_response':turn['assistant']})
         history_only.append({**common,'target_response':turn['assistant']})
         history.append({'role':'assistant','content':turn['assistant']})
-        if turn['user'] is not None:
-            # The assistant action has already happened when extraction reads the user.
-            before_user = State.from_snapshot(turn['state_before'])
-            commit_action(before_user, Action(**a))
-            history.append({'role':'user','content':turn['user']})
-            extraction.append({'episode_id':ep['episode_id'],'turn':turn['index'],
-                               'next_turn':turn['index'] + 1,
-                               'history_before':history[:-1], 'utterance':turn['user'],
-                               'state_before':before_user.snapshot(),
-                               'target_observation':deepcopy(turn['observation']),
-                               'target_state':deepcopy(turn['state_after'])})
     return {'policy':policy,'response':response,'history':history_only,'extraction':extraction}
 
 def validate_episode(ep):
     assert ep['turns'] and ep['turns'][-1]['action']['type']=='CLOSE'
-    seen_close=False
-    known={k:None for k in SLOTS}
-    for t in ep['turns']:
-        assert not seen_close
-        a=t['action']
-        before=t['state_before']; after=t['state_after']
-        assert before['known']==known
-        assert a['type']!='ASK' or before['known'][a['target']] is None
-        if a['type']=='ASK': assert before['statuses'][a['target']]=='unknown'
-        if a['type']=='CLARIFY': assert before['statuses'][a['target']]=='ambiguous'
-        if a['type'] in ('ASK','CLARIFY'):
-            assert after['attempts'][a['target']]==before['attempts'][a['target']]+1
-            assert after['attempts'][a['target']]<=2
-        if t['user'] is not None:
-            assert t['observation'] is not None
-            for k,v in t['observation']['facts'].items():
-                assert v==ep['hidden_user'][k]
-                known[k]=v
-            assert after['known']==known
-        else:
-            assert a['type']=='CLOSE'
-        if a['type']=='CLOSE': seen_close=True
-    assert seen_close
+    state = State()
+    for index, turn in enumerate(ep['turns']):
+        assert turn['index'] == index and turn['user']
+        assert turn['state_before_user'] == state.snapshot()
+        assert all(ep['hidden_user'][slot] == value for slot, value in turn['observation']['facts'].items())
+        observe(state, turn['observation'])
+        assert turn['state_before'] == state.snapshot()
+        action = Action(**turn['action'])
+        if action.reason != 'horizon_limit':
+            assert action == select_action(state)
+        commit_action(state, action)
+        assert turn['state_after'] == state.snapshot()
+        assert max(state.attempts.values()) <= 2
+        assert action.type != 'CLOSE' or index == len(ep['turns']) - 1
     assert ep['messages']==episode_messages(ep['turns'])
 
 def write_jsonl(path, records):
@@ -316,7 +317,7 @@ def write_jsonl(path, records):
 
 def generate_all(out,counts,seed):
     root=Path(out);root.mkdir(parents=True,exist_ok=True)
-    manifest={'version':'0.2.0','seed':seed,'counts':counts,'notes':[
+    manifest={'version':'0.3.0','dialogue_start':'user','seed':seed,'counts':counts,'notes':[
         'No pretrained model used; template-based oracle simulation.',
         'Current splits share template families; evaluate unseen templates separately.',
         'Policy labels are supervised only, not proof of autonomous conversational ability.'

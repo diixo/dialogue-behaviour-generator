@@ -163,12 +163,12 @@ class TrainingDataTests(unittest.TestCase):
             path.write_text('\n'.join(json.dumps(row) for row in rows), encoding='utf-8')
         chains = DialogueChainDataset(self.tokenizer, data_dir=self.root / 'data')
         self.assertEqual(len(chains), len(chains.datasets['extraction']))
-        self.assertEqual(len(chains.datasets['history']), len(chains) + 2)
+        self.assertEqual(len(chains.datasets['history']), len(chains))
         closes = 0
         for index, linked in enumerate(chains.links):
             item = chains[index]
             extraction = chains.datasets['extraction'].data[linked['extraction']]
-            self.assertEqual(item['next_turn'], item['turn'] + 1)
+            self.assertEqual(item['next_turn'], item['turn'])
             for view in ('policy', 'response', 'history'):
                 row = chains.datasets[view].data[linked[view]]
                 self.assertEqual((row['episode_id'], row['turn']), (item['episode_id'], item['next_turn']))
@@ -187,8 +187,16 @@ class TrainingDataTests(unittest.TestCase):
     def test_chain_can_load_structured_sft_records(self):
         chains = DialogueChainDataset(self.tokenizer, data_dir=self.root / 'sft')
         self.assertEqual(chains[0]['turn'], 0)
-        self.assertEqual(chains[0]['next_turn'], 1)
+        self.assertEqual(chains[0]['next_turn'], 0)
         self.assertEqual(len(chains), len(self.dataset(ExtractionDataset)))
+
+    def test_chain_rejects_assistant_first_alignment(self):
+        path = self.root / 'data/extraction/train.jsonl'
+        rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
+        rows[0]['next_turn'] = rows[0]['turn'] + 1
+        path.write_text('\n'.join(json.dumps(row) for row in rows), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'same turn'):
+            DialogueChainDataset(self.tokenizer, data_dir=self.root / 'data')
 
     def test_chain_rejects_missing_next_turn(self):
         path = self.root / 'data/policy/train.jsonl'

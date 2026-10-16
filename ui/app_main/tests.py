@@ -106,22 +106,23 @@ class DashboardTests(SimpleTestCase):
         expected = hashlib.sha256(json.dumps(self.episodes['train'], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         self.assertEqual(artifacts.dataset_index('train').digest, expected)
 
-    def test_linked_examples_use_next_turn_and_keep_simulator_facts_out_of_input(self):
+    def test_linked_examples_use_same_turn_and_keep_simulator_facts_out_of_input(self):
         response = self.client.get(reverse('app_main:episode', args=['test', 'test_000000']))
         self.assertEqual(response.status_code, 200)
         examples = response.context['examples']
         self.assertEqual([(e['view'], e['turn']) for e in examples],
-                         [('extraction', 0), ('policy', 1), ('response', 1), ('history', 1)])
+                         [('extraction', 0), ('policy', 0), ('response', 0), ('history', 0)])
         state = json.loads(examples[0]['completion'])['state']
-        self.assertEqual(state, self.episodes['test'][0]['turns'][1]['state_before'])
+        self.assertEqual(state, self.episodes['test'][0]['turns'][0]['state_before'])
+        self.assertEqual(json.loads(response.context['after_json']), state)
         self.assertNotIn('hidden_user', json.dumps([e['messages'] for e in examples]))
         self.assertNotIn('simulator', json.dumps([e['messages'] for e in examples]))
 
-    def test_terminal_turn_has_no_extraction_or_fictitious_next_turn(self):
+    def test_terminal_turn_extracts_last_user_message_before_closing(self):
         last = len(self.episodes['test'][0]['turns']) - 1
         response = self.client.get(reverse('app_main:episode', args=['test', 'test_000000']), {'turn': last})
-        self.assertIsNone(response.context['next_turn'])
-        self.assertEqual([e['view'] for e in response.context['examples']], ['policy', 'response', 'history'])
+        self.assertEqual(response.context['next_turn'], last)
+        self.assertEqual([e['view'] for e in response.context['examples']], ['extraction', 'policy', 'response', 'history'])
         self.assertTrue(all(e['turn'] == last for e in response.context['examples']))
 
     def test_invalid_routes_and_path_inputs_do_not_expose_files(self):
@@ -183,6 +184,17 @@ class DashboardTests(SimpleTestCase):
             identifier = self.make_report(**options)
             response = self.client.get(reverse('app_main:prediction', args=[identifier, 0]))
             self.assertIsNone(response.context['source_url'])
+
+    def test_session_report_shows_generated_context_and_retains_recorded_source_link(self):
+        identifier = self.make_report(mode='session', context='predicted_history_with_recorded_users',
+            initial_state='empty_before_first_user', session_summary={
+                'generated_turns': 1, 'termination_counts': {'premature_close': 1}})
+        response = self.client.get(reverse('app_main:report_detail', args=[identifier]))
+        self.assertContains(response, 'Session: сообщения пользователя взяты из датасета')
+        self.assertContains(response, 'Завершённых ходов: 1 / 2')
+        self.assertNotContains(response, 'Replay: каждый переход')
+        detail = self.client.get(reverse('app_main:prediction', args=[identifier, 0]))
+        self.assertTrue(detail.context['source_url'])
 
     def test_report_without_predictions_and_malformed_manifest(self):
         identifier = self.make_report()

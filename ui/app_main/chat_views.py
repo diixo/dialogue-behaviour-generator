@@ -1,7 +1,6 @@
 """Interactive conversations share the worker queue with training and evaluation."""
 
 from pathlib import Path
-import uuid
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -36,10 +35,8 @@ def enqueue_message(chat, message, identifier, previous_job=None):
             raise ValueError('Дождитесь ответа на предыдущее сообщение.')
         if last and last.result.get('closed'):
             raise ValueError('Модель завершила разговор. Начните новый диалог.')
-        if last and not message:
+        if not message or not message.strip():
             raise ValueError('Введите сообщение.')
-        if not last and message:
-            raise ValueError('Сначала дождитесь первой реплики модели.')
         config = dict(chat.config, turns=[job.result for job in completed], message=message,
                       previous_job=str(previous_job) if previous_job else None)
         return jobs.enqueue('chat', f'Чат · ход {len(completed) + 1}', config, identifier=identifier,
@@ -56,7 +53,6 @@ def chats(request):
                 chat, _ = ChatSession.objects.get_or_create(pk=form.cleaned_data['submission_id'], defaults={'config': config})
                 if chat.config != config:
                     raise ValueError('Эта форма уже отправлена с другими параметрами. Обновите страницу.')
-                enqueue_message(chat, None, uuid.uuid5(chat.pk, 'opening'))
             return redirect('app_main:chat', identifier=chat.pk)
         except (ValueError, IntegrityError) as error:
             form.add_error(None, str(error) if isinstance(error, ValueError) else 'Задача уже поставлена в очередь.')

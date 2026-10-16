@@ -51,7 +51,11 @@ class TrainForm(StyledForm):
 
 
 class BenchmarkForm(StyledForm):
-    mode = forms.ChoiceField(label='Протокол', choices=[(x, x) for x in EVAL_MODES], initial='full')
+    mode = forms.ChoiceField(label='Протокол', choices=[(x, {
+        'full': 'full — эталонная предыстория',
+        'session': 'session — собственная предыстория',
+        'rollout': 'rollout — диалог с симулятором',
+    }.get(x, x)) for x in EVAL_MODES], initial='full')
     split = forms.ChoiceField(label='Split', choices=[('validation', 'validation'), ('test', 'test')], initial='validation')
     model = forms.ChoiceField(label='Общая модель для этапов', required=False)
     dst = forms.ChoiceField(label='Модель состояния B (DST / extraction)', required=False)
@@ -59,7 +63,8 @@ class BenchmarkForm(StyledForm):
     response = forms.ChoiceField(label='Модель ответа R', required=False)
     device = forms.ChoiceField(label='Устройство', choices=[('cpu', 'CPU'), ('cuda', 'CUDA GPU')], initial='cpu')
     max_new_tokens = forms.IntegerField(label='Лимит генерации', min_value=1, max_value=1024, initial=192)
-    max_turns = forms.IntegerField(label='Максимум ходов rollout', min_value=1, initial=17)
+    max_turns = forms.IntegerField(label='Максимум ходов rollout', min_value=1, initial=17,
+                                  help_text='Только для симулятора. В full и session проверяются все ходы выбранных эпизодов.')
     seed = forms.IntegerField(label='Seed', min_value=0, max_value=4294967295, initial=42)
 
     def __init__(self, *args, **kwargs):

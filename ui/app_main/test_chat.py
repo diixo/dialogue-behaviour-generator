@@ -28,7 +28,7 @@ class ChatTests(TestCase):
         self.addCleanup(override.disable)
         self.addCleanup(artifacts._json.cache_clear)
 
-    def create_chat(self):
+    def create_chat(self, message='Hi!'):
         data = {'submission_id': uuid.uuid4(), 'model': artifacts.artifact_id(self.model),
                 'device': 'cpu', 'max_new_tokens': 192}
         with patch('app_main.jobs.subprocess.Popen') as launch:
@@ -38,7 +38,9 @@ class ChatTests(TestCase):
         self.assertEqual(first.status_code, 302)
         self.assertEqual(repeat.url, first.url)
         chat = ChatSession.objects.get(pk=data['submission_id'])
-        self.assertEqual(chat.jobs.count(), 1)
+        self.assertEqual(chat.jobs.count(), 0)
+        if message is not None:
+            self.assertEqual(self.send(chat, message=message).status_code, 302)
         return chat
 
     def complete(self, job, response='Model reply', closed=False):
@@ -53,13 +55,19 @@ class ChatTests(TestCase):
         return self.client.post(reverse('app_main:chat_send', args=[chat.pk]), {
             'submission_id': identifier or uuid.uuid4(), 'previous_job': previous.pk if previous else '', 'message': message})
 
-    def test_creation_is_idempotent_only_queues_and_gets_are_read_only(self):
+    def test_creation_waits_for_first_user_message_and_gets_are_read_only(self):
         self.assertEqual(self.client.get(reverse('app_main:chats')).status_code, 200)
         self.assertFalse(ChatSession.objects.exists())
-        chat = self.create_chat()
+        chat = self.create_chat(message=None)
+        page = self.client.get(reverse('app_main:chat', args=[chat.pk]))
+        self.assertContains(page, 'name="message"')
+        self.assertEqual(chat.jobs.count(), 0)
+        self.assertEqual(self.send(chat, message='').status_code, 200)
+        self.assertEqual(chat.jobs.count(), 0)
+        self.assertEqual(self.send(chat, message='It is evening.').status_code, 302)
         job = chat.jobs.get()
         self.assertEqual(job.kind, 'chat')
-        self.assertIsNone(job.config['message'])
+        self.assertEqual(job.config['message'], 'It is evening.')
         self.assertEqual(job.config['turns'], [])
         self.assertNotIn('data_hashes', job.config)
         self.assertContains(self.client.get(reverse('app_main:chat', args=[chat.pk])), 'В очереди')
@@ -130,7 +138,9 @@ class ChatTests(TestCase):
         self.assertEqual(Client(enforce_csrf_checks=True).post(url).status_code, 403)
         self.assertEqual(self.client.post(url).status_code, 302)
         self.assertEqual(chat.jobs.get().status, 'cancelled')
-        self.assertEqual(self.send(chat, message='').status_code, 302)
+        self.assertEqual(self.send(chat, message='').status_code, 200)
+        self.assertFalse(chat.jobs.filter(status='queued').exists())
+        self.assertEqual(self.send(chat, message='Hi!').status_code, 302)
         self.assertEqual(chat.jobs.filter(status='queued').count(), 1)
         status = self.client.get(reverse('app_main:chat_status', args=[chat.pk]))
         self.assertTrue(status.json()['active'])

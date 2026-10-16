@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from generator import State, Action, observe, select_action, commit_action, generate_episode, validate_episode
 import random
 
@@ -27,13 +28,15 @@ class PolicyTests(unittest.TestCase):
         for i in range(100): validate_episode(generate_episode(r,str(i),'test'))
 
 class DatasetTests(unittest.TestCase):
-    def test_extraction_updates_memory_and_matches_next_turn(self):
+    def test_extraction_updates_memory_and_matches_same_turn(self):
         from generator import compile_views
         reactions = set()
         for seed in range(50):
             ep = generate_episode(random.Random(seed), str(seed), 'train')
             views = compile_views(ep)
-            self.assertEqual(len(views['extraction']), len(views['history']) - 1)
+            self.assertEqual(len(views['extraction']), len(views['history']))
+            self.assertEqual(views['extraction'][0]['state_before'], State().snapshot())
+            self.assertEqual(views['extraction'][0]['history_before'], [])
             self.assertNotIn('state', views['history'][0])
             for extracted in views['extraction']:
                 observation = extracted['target_observation']
@@ -46,7 +49,7 @@ class DatasetTests(unittest.TestCase):
                     self.assertEqual(restored.statuses[observation['refused']], 'declined')
                 for slot, value in extracted['state_before']['known'].items():
                     self.assertEqual(restored.known[slot], observation['facts'].get(slot, value))
-                next_turn = extracted['turn'] + 1
+                next_turn = extracted['turn']
                 self.assertEqual(extracted['next_turn'], next_turn)
                 context = extracted['history_before'] + [{'role':'user', 'content':extracted['utterance']}]
                 for view in ('policy', 'response', 'history'):
@@ -78,7 +81,22 @@ class DatasetTests(unittest.TestCase):
         from generator import episode_messages
         e=generate_episode(random.Random(14),'x','train')
         self.assertEqual(e['messages'],episode_messages(e['turns']))
-        self.assertEqual(len(e['messages']),2*len(e['turns'])-1)
+        self.assertEqual(len(e['messages']),2*len(e['turns']))
+        self.assertEqual([m['role'] for m in e['messages']], ['user', 'assistant'] * len(e['turns']))
+
+    def test_first_message_facts_precede_policy_without_revealing_hidden_slots(self):
+        from generator import UserSimulator, compile_views
+        def opening(sim):
+            return sim.utterance('time_of_day'), sim.obs('INFORM', facts={'time_of_day': sim.hidden['time_of_day']})
+        with patch.object(UserSimulator, 'opening', opening):
+            episode = generate_episode(random.Random(42), 'first', 'train')
+        validate_episode(episode)
+        views = compile_views(episode)
+        state = views['extraction'][0]['target_state']
+        self.assertEqual(state['known'], {'time_of_day': episode['hidden_user']['time_of_day'],
+                                         'activity': None, 'mood': None})
+        self.assertEqual(views['policy'][0]['target_action'], {'type': 'ASK', 'target': 'activity'})
+        self.assertEqual(views['policy'][0]['history'], [episode['messages'][0]])
     def test_policy_no_mutation(self):
         s=State();s.statuses['time_of_day']='ambiguous';s.attempts['time_of_day']=2
         before=s.snapshot()

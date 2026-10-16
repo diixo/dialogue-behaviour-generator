@@ -7,6 +7,7 @@
     <a class="btn btn-outline-primary btn-sm ms-auto" href="{% url 'app_main:chats' %}?model={{ model_id }}">Новый диалог</a>
   </div>
   <div class="small text-secondary mb-3">{{ chat.config.model_label }} · {{ chat.config.device }} · лимит генерации {{ chat.config.max_new_tokens }}</div>
+  {% if chat.config.trained_dialogue_start == 'assistant' %}<p class="small text-secondary">Эта модель обучена на диалогах, где первым писал ассистент. Для нового порядка нужно переобучение на обновлённом датасете.</p>{% endif %}
   <div id="chat-worker-warning" class="alert alert-info small" {% if worker_online %}hidden{% endif %}>Для ответа нужен worker: <code>py ui/manage.py runworker</code>. Если выполняется другая задача, чат дождётся своей очереди.</div>
   <div id="chat-poll-warning" class="alert alert-warning small" hidden>Не удалось обновить состояние. Повторяем подключение…</div>
   <section class="panel p-3 p-md-4 mb-3 chat-transcript" id="chat-transcript" aria-label="Переписка">
@@ -26,7 +27,7 @@
         <div class="alert alert-warning small">{{ job.get_status_display }}{% if job.error %}: {{ job.error }}{% endif %}<div class="mt-1">Этот ход не добавлен в память модели.</div></div>
         {% if job.result.stages %}<details class="mb-4"><summary>Вывод модели до остановки</summary>{% for stage, value in job.result.stages.items %}<div class="small text-secondary mt-3">{{ stage }} · {{ value.tokens }} токенов · маркер завершения: {{ value.stopped|yesno:'да,нет' }}</div><pre class="mt-2">{{ value.text }}</pre>{% endfor %}</details>{% endif %}
       {% endif %}
-    {% empty %}<p class="text-secondary">Начните диалог, чтобы получить первую реплику модели.</p>{% endfor %}
+    {% empty %}<p class="text-secondary">Напишите первое сообщение. Модель начнёт с извлечения фактов из вашего запроса.</p>{% endfor %}
     {% if active_job %}<div class="d-flex align-items-center flex-wrap gap-3 mt-3" role="status"><span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span><span id="chat-phase">{{ phase }}</span><form method="post" action="{% url 'app_main:chat_stop' chat.pk %}" class="ms-auto">{% csrf_token %}<button class="btn btn-outline-secondary btn-sm" type="submit">Остановить</button></form></div>{% endif %}
     {% if closed %}<p class="text-secondary small mt-3 mb-0">Модель выбрала CLOSE и завершила разговор. Для продолжения проверки начните новый диалог.</p>{% endif %}
   </section>
@@ -36,8 +37,8 @@
     {% for error in form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endfor %}
     {% for field in form.hidden_fields %}{{ field }}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}{% endfor %}
     <fieldset {% if active_job %}disabled{% endif %}>
-      {% if started %}<label class="form-label small" for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>{{ form.message }}{% for error in form.message.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}{% endif %}
-      <button class="btn btn-primary mt-3" type="submit">{% if started %}Отправить{% else %}Повторить начало диалога{% endif %}</button>
+      <label class="form-label small" for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>{{ form.message }}{% for error in form.message.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+      <button class="btn btn-primary mt-3" type="submit">Отправить</button>
     </fieldset>
   </form>
   {% endif %}

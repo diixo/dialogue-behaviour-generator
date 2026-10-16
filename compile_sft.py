@@ -37,7 +37,8 @@ def build_messages(history, view, *, state=None, action=None):
     """Build training or inference inputs using observed/predicted state and action.
 
     For extraction, history includes the latest user message and state is the memory
-    after committing the preceding assistant action, before observing that message.
+    before observing that message (empty for the first user message, otherwise
+    after committing the preceding assistant action).
     For policy/response, pass the state returned by extraction. No targets are read.
     """
     if view not in VIEWS:

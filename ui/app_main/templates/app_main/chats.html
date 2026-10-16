@@ -7,7 +7,7 @@
     <form method="post" class="panel p-4">
       {% csrf_token %}
       <h2 class="h5 mb-3">Новый диалог</h2>
-      <p class="small text-secondary">Модель начинает разговор первой. Текущий датасет англоязычный — начните проверку с реплик на английском.</p>
+      <p class="small text-secondary">Напишите первым: модель извлечёт факты, выберет действие и ответит. Датасет англоязычный — начните проверку с реплик на английском.</p>
       {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
       {% for field in form %}
         {% if field.is_hidden %}{{ field }}{% else %}<div class="mb-3"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>{% endif %}

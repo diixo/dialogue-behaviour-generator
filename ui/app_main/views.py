@@ -138,11 +138,12 @@ def episode(request, split, episode_id):
         except (ValueError, TypeError):
             example['completion_display'] = example['completion']
     before = extraction['state_before'] if extraction else turn['state_before']
+    after = extraction['target_state'] if extraction else turn['state_after']
     return page(request, 'episode', episode_id, 'datasets', episode=data, split=split,
                 turn=turn, selected=selected, action=serialize_action(turn['action']),
                 next_turn=next_turn, examples=examples, extraction=extraction,
-                changes=differences(before, turn['state_after']), before_json=pretty(before),
-                after_json=pretty(turn['state_after']), observation_json=pretty(turn['observation']),
+                changes=differences(before, after), before_json=pretty(before),
+                after_json=pretty(after), observation_json=pretty(turn['observation']),
                 simulator_json=pretty(data.get('hidden_user')), corpus_hash=index.digest)
 
 
@@ -259,7 +260,7 @@ def report_detail(request, identifier):
                 error=error, tag=tag, q=query, metric=metric, value=value, target=target,
                 has_predictions=prediction_path is not None,
                 config_json=pretty({k: v for k, v in config.items() if k not in
-                                   ('metrics', 'groups', 'data_review_candidates', 'rollout_outcomes')}),
+                                   ('metrics', 'groups', 'data_review_candidates', 'rollout_outcomes', 'session_outcomes')}),
                 **paginate(request, rows))
 
 

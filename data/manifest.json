@@ -1,5 +1,6 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "dialogue_start": "user",
   "seed": 42,
   "counts": {
     "train": 2000,
@@ -12,21 +13,21 @@
     "Policy labels are supervised only, not proof of autonomous conversational ability."
   ],
   "train_rows": {
-    "policy": 11627,
-    "response": 11627,
-    "history": 11627,
-    "extraction": 9627
+    "policy": 9706,
+    "response": 9706,
+    "history": 9706,
+    "extraction": 9706
   },
   "validation_rows": {
-    "policy": 1121,
-    "response": 1121,
-    "history": 1121,
-    "extraction": 921
+    "policy": 930,
+    "response": 930,
+    "history": 930,
+    "extraction": 930
   },
   "test_rows": {
-    "policy": 1137,
-    "response": 1137,
-    "history": 1137,
-    "extraction": 937
+    "policy": 962,
+    "response": 962,
+    "history": 962,
+    "extraction": 962
   }
 }

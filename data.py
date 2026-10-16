@@ -187,10 +187,10 @@ class ResponseDataset(DialogueDataset):
 
 
 class DialogueChainDataset(Dataset):
-    """Join extraction[t] with policy/response/history[t+1] within an episode.
+    """Join extraction with its linked policy/response/history within an episode.
 
     Each item holds four supervised tasks, not a generated inference rollout.
-    Opening assistant turns remain available in the individual datasets.
+    User-first episodes include extraction for the first message as well.
     """
 
     def __init__(self, tokenizer, split='train', **kwargs):
@@ -206,8 +206,8 @@ class DialogueChainDataset(Dataset):
                 indices[view][key] = index
         self.links = []
         for index, row in enumerate(self.datasets['extraction'].data):
-            if row['next_turn'] != row['turn'] + 1:
-                raise ValueError('Extraction must link to the next assistant turn')
+            if row['next_turn'] != row['turn']:
+                raise ValueError('Extraction must link to the assistant response in the same turn')
             key = (row['episode_id'], row['next_turn'])
             linked = {'extraction': index}
             for view in ('policy', 'response', 'history'):
@@ -268,8 +268,7 @@ class SessionDataset(TaskDataset):
             previous = []
             start_turn = 0
             for index, turn in enumerate(episode['turns']):
-                user = [] if index == 0 else encode(
-                    tokenizer, ubar_user(episode['turns'][index - 1]['user'], style))
+                user = encode(tokenizer, ubar_user(turn['user'], style))
                 output = encode(tokenizer,
                     segment('dst', state_text(turn['state_before'])) +
                     segment('policy', serialize_action(turn['action'])) +
