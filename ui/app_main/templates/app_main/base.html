@@ -8,6 +8,14 @@
   <title>{{ title }} · Dialogue lab</title>
   <link rel="stylesheet" href="{% static 'app_main/assets/vendor/bootstrap/css/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'app_main/assets/vendor/bootstrap-icons/bootstrap-icons.css' %}">
+  <!-- Icofont -->
+  <link rel="stylesheet" href="{% static 'app_main/assets/vendor/icofont/icofont.min.css' %}">
+  <!-- Font Icons -->
+  <link rel="stylesheet" href="{% static 'app_main/assets/vendor/icons/css/materialdesignicons.min.css' %}">
+  <!-- Material Icons -->
+  <link rel="stylesheet" href="{% static 'app_main/assets/icons/materialicons/materialicons.css' %}">
+  <!-- Fontawesome Icons -->
+  <link rel="stylesheet" href="{% static 'app_main/assets/icons/webfonts/fontawesome.css' %}">
   <link rel="stylesheet" href="{% static 'app_main/css/dashboard.css' %}">
   <link rel="stylesheet" href="{% static 'app_main/css/lab.css' %}">
   {% block extra_style %}{% endblock %}
@@ -18,13 +26,17 @@
   <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 d-flex align-items-center gap-2" href="{% url 'app_main:main' %}">
     <span class="lab-mark">d.</span><span class="fw-semibold">Dialogue lab</span>
   </a>
-  <form class="header-search flex-grow-1 px-3" action="{% url 'app_main:datasets' %}" method="get" role="search">
-    <label class="visually-hidden" for="global-search">Найти эпизод в train</label>
-    <i class="bi bi-search text-secondary" aria-hidden="true"></i>
-    <input id="global-search" name="q" class="form-control border-0" placeholder="Найти episode_id в train…" type="search">
-  </form>
-  <span class="local-label text-secondary small me-4 d-none d-lg-inline">Локальная рабочая область</span>
-  <button class="btn d-md-none me-2" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu" aria-label="Открыть навигацию"><i class="bi bi-list" aria-hidden="true"></i></button>
+  <ul class="navbar-nav flex-row d-md-none">
+    <li class="nav-item text-nowrap">
+      <button class="nav-link px-3" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSearch" aria-controls="navbarSearch" aria-expanded="false" aria-label="Открыть поиск"><i class="bi bi-search" aria-hidden="true"></i></button>
+    </li>
+    <li class="nav-item text-nowrap">
+      <button class="nav-link px-3" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu" aria-label="Открыть навигацию"><i class="bi bi-list" aria-hidden="true"></i></button>
+    </li>
+  </ul>
+  <div id="navbarSearch" class="navbar-search w-100 collapse">
+    <input class="form-control w-100 rounded-0 border-0" type="text" placeholder="Search" aria-label="Search">
+  </div>
 </header>
 <div class="container-fluid"><div class="row">
   <aside class="sidebar border-end col-md-3 col-lg-2 p-0 bg-white">
@@ -34,7 +46,7 @@
         <div class="sidebar-heading text-secondary text-uppercase px-3 mb-3 mt-2">Рабочая область</div>
         <nav aria-label="Основная навигация"><ul class="nav flex-column gap-1">
         {% for route, label, icon in navigation %}
-          <li class="nav-item"><a class="nav-link d-flex align-items-center gap-2 {% if section == route %}active{% endif %}" {% if section == route %}aria-current="page"{% endif %} href="{% url 'app_main:'|add:route %}"><i class="bi bi-{{ icon }}" aria-hidden="true"></i>{{ label }}</a></li>
+          <li class="nav-item"><a class="nav-link d-flex align-items-center gap-2 {% if section == route %}active{% endif %}" {% if section == route %}aria-current="page"{% endif %} href="{% url 'app_main:'|add:route %}"><span class="material-icons" aria-hidden="true">{{ icon }}</span>{{ label }}</a></li>
         {% endfor %}
         </ul></nav>
         <div class="sidebar-note mt-5 px-3 small text-secondary">Данные → обучение → оценка<br>От метрики к конкретному диалогу.</div>
