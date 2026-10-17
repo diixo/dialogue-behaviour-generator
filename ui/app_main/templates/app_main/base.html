@@ -41,12 +41,19 @@
 <div class="container-fluid"><div class="row">
   <aside class="sidebar border-end col-md-3 col-lg-2 p-0 bg-white">
     <div class="offcanvas-md offcanvas-start" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
-      <div class="offcanvas-header"><h2 class="offcanvas-title h5" id="sidebarMenuLabel">Dialogue lab</h2><button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu" aria-label="Закрыть"></button></div>
+      <div class="offcanvas-header">
+        <h2 class="offcanvas-title h5" id="sidebarMenuLabel">Dialogue lab</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu" aria-label="Закрыть"></button>
+      </div>
       <div class="offcanvas-body d-md-flex flex-column p-3">
         <div class="sidebar-heading text-secondary text-uppercase px-3 mb-3 mt-2">Рабочая область</div>
         <nav aria-label="Основная навигация"><ul class="nav flex-column gap-1">
         {% for route, label, icon in navigation %}
-          <li class="nav-item"><a class="nav-link d-flex align-items-center gap-2 {% if section == route %}active{% endif %}" {% if section == route %}aria-current="page"{% endif %} href="{% url 'app_main:'|add:route %}"><span class="material-icons" aria-hidden="true">{{ icon }}</span>{{ label }}</a></li>
+          <li class="nav-item">
+            <a class="nav-link d-flex align-items-center gap-2 {% if section == route %}active{% endif %}" {% if section == route %}aria-current="page"{% endif %} href="{% url 'app_main:'|add:route %}">
+              <span class="material-icons" aria-hidden="true">{{ icon }}</span>{{ label }}
+            </a>
+          </li>
         {% endfor %}
         </ul></nav>
         <div class="sidebar-note mt-5 px-3 small text-secondary">Данные → обучение → оценка<br>От метрики к конкретному диалогу.</div>
