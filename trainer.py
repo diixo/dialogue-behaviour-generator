@@ -1,7 +1,7 @@
 """Train independent task checkpoints or a UBAR memory model.
 
 Examples:
-  python trainer.py --task dst --output runs/dst
+  python trainer.py --task extraction --output runs/extraction
   python trainer.py --task ubar --output runs/ubar
   python trainer.py --task policy --output runs/policy --epochs 2
 

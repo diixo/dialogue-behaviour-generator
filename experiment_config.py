@@ -1,6 +1,6 @@
 """Lightweight defaults shared by CLI training and the local dashboard."""
 
-TRAIN_TASKS = ('dst', 'extraction', 'policy', 'response', 'history', 'ubar')
+TRAIN_TASKS = ('extraction', 'policy', 'response', 'history', 'ubar')
 EVAL_CHAINS = ('dst', 'extraction', 'policy', 'response', 'history', 'policy_response', 'full')
 EVAL_CONTEXTS = ('reference', 'predicted')
 EVAL_USER_SOURCES = ('dataset', 'simulator')
