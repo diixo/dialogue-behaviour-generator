@@ -7,6 +7,7 @@ Examples:
 
 All modes use canonical episodes; labels never include hidden simulator facts.
 Every mode defaults to the classic pretrained GPT-2 (gpt2) and two epochs.
+New runs warm up to the configured learning rate, then keep it constant.
 Use benchmark.py for generation quality: validation loss selects checkpoints only.
 """
 
@@ -63,6 +64,8 @@ def print_dataset_summary(manifest, splits):
         f'Training: model={manifest["base_model"]}, epochs={manifest["epochs"]}, '
         f'batch_size/device={manifest["batch_size"]}, '
         f'accumulation={manifest["gradient_accumulation_steps"]}',
+        f'Learning rate: {manifest["learning_rate"]}, scheduler={manifest["lr_scheduler_type"]}, '
+        f'warmup_ratio={manifest["warmup_ratio"]}',
         '',
     ])
     print('\n'.join(lines), flush=True)
@@ -74,7 +77,7 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
                      max_length=1024,
                      loss_scope='targets',
                      epochs=2,
-                     batch_size=4,
+                     batch_size=8,
                      accumulation=1,
                      learning_rate=8e-5,
                      warmup_ratio=0.05,
@@ -98,6 +101,17 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
 
     if output.exists() and any(output.iterdir()) and resume is None:
         raise ValueError(f'{output} is not empty; choose another output or --resume a checkpoint')
+
+    config_path = output / 'experiment.json'
+    previous = None
+    lr_scheduler_type = 'constant_with_warmup'
+    if resume is not None:
+        if not config_path.exists():
+            raise ValueError('Resume requires experiment.json in the output directory')
+        previous = json.loads(config_path.read_text(encoding='utf-8'))
+        # Old manifests predate this field and used the Transformers linear default.
+        # Reconstruct that same schedule before restoring the optimizer/scheduler.
+        lr_scheduler_type = previous.get('lr_scheduler_type', 'linear')
 
     if tokenizer.eos_token_id is None:
         raise ValueError('Tokenizer requires an EOS token')
@@ -138,6 +152,7 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
         'batch_size': batch_size,
         'gradient_accumulation_steps': accumulation,
         'learning_rate': learning_rate,
+        'lr_scheduler_type': lr_scheduler_type,
         'warmup_ratio': warmup_ratio,
         'train_hash': corpus_hash(train_episodes),
         'validation_hash': corpus_hash(validation_episodes),
@@ -149,13 +164,10 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
     if job_control is not None:
         job_control.check_stop()
         job_control.emit(phase='prepared', dataset=manifest)
-    config_path = output / 'experiment.json'
-    if resume is not None:
-        if not config_path.exists():
-            raise ValueError('Resume requires experiment.json in the output directory')
-        previous = json.loads(config_path.read_text(encoding='utf-8'))
+    if previous is not None:
+        legacy_defaults = {'dialogue_start': 'assistant', 'lr_scheduler_type': 'linear'}
         for key in manifest:
-            if previous.get(key, 'assistant' if key == 'dialogue_start' else None) != manifest[key]:
+            if previous.get(key, legacy_defaults.get(key)) != manifest[key]:
                 raise ValueError(f'Resume configuration differs: {key}')
     output.mkdir(parents=True, exist_ok=True)
 
@@ -170,6 +182,7 @@ def train_experiment(model, tokenizer, train_episodes, validation_episodes, *, t
         per_device_eval_batch_size=batch_size,
         gradient_accumulation_steps=accumulation,
         learning_rate=learning_rate,
+        lr_scheduler_type=lr_scheduler_type,
         warmup_ratio=warmup_ratio,
         weight_decay=0.01,
         seed=seed,
@@ -234,7 +247,7 @@ def main():
     parser.add_argument('--loss-scope', choices=('targets', 'all'), default='targets', help='all is UBAR only')
     parser.add_argument('--max-length', type=int, default=1024)
     parser.add_argument('--epochs', type=float, default=2, help='Training epochs (default: 2)')
-    parser.add_argument('--batch-size', type=int, default=4)
+    parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--accumulation', type=int, default=1)
     parser.add_argument('--learning-rate', type=float, default=8e-5)
     parser.add_argument('--warmup-ratio', type=float, default=0.05)
