@@ -1,11 +1,13 @@
 """Real CPU stop/resume and generation tests using a tiny local GPT-2 fixture."""
 
 import gc
+from contextlib import nullcontext
 import json
 from pathlib import Path
 import random
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -23,8 +25,11 @@ class JobIntegrationTests(unittest.TestCase):
             with self.subTest(task=task):
                 self.check_stop_resume(task)
 
-    def check_stop_resume(self, task):
-        from transformers import GPT2Config, GPT2LMHeadModel
+    def test_legacy_linear_resume_preserves_schedule_without_manifest_field(self):
+        self.check_stop_resume('dst', legacy=True)
+
+    def check_stop_resume(self, task, legacy=False):
+        from transformers import GPT2Config, GPT2LMHeadModel, TrainingArguments
         threads = torch.get_num_threads()
         torch.set_num_threads(1)
         self.addCleanup(torch.set_num_threads, threads)
@@ -53,7 +58,16 @@ class JobIntegrationTests(unittest.TestCase):
                         (self.directory / 'stop.request').touch()
 
             control = StopAfterFirstStep(root / 'control1')
-            first = execute({'kind': 'train', 'config': config, 'output': str(root / 'first')}, control)
+            # Reproduce an old checkpoint with a linear scheduler and no scheduler metadata.
+            def legacy_arguments(**kwargs):
+                return TrainingArguments(**(kwargs | {'lr_scheduler_type': 'linear'}))
+            with patch('transformers.TrainingArguments', side_effect=legacy_arguments) if legacy else nullcontext():
+                first = execute({'kind': 'train', 'config': config, 'output': str(root / 'first')}, control)
+            if legacy:
+                manifest_path = root / 'first' / 'experiment.json'
+                old_manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+                del old_manifest['lr_scheduler_type']
+                manifest_path.write_text(json.dumps(old_manifest), encoding='utf-8')
             self.assertEqual(first['status'], 'stopped')
             checkpoint = Path(first['checkpoint'])
             self.assertTrue((checkpoint / 'optimizer.pt').exists())
@@ -65,6 +79,12 @@ class JobIntegrationTests(unittest.TestCase):
             self.assertEqual(continued['status'], 'completed')
             self.assertEqual(continued['metrics']['epoch'], 2)
             manifest = json.loads((root / 'continued' / 'experiment.json').read_text())
+            self.assertEqual(manifest['lr_scheduler_type'], 'linear' if legacy else 'constant_with_warmup')
+            final_checkpoint = root / 'continued' / f'checkpoint-{continued["metrics"]["global_step"]}'
+            scheduler = torch.load(final_checkpoint / 'scheduler.pt', weights_only=True)
+            self.assertTrue(scheduler['_last_lr'])
+            for rate in scheduler['_last_lr']:
+                self.assertAlmostEqual(rate, 0 if legacy else config['learning_rate'])
             self.assertEqual(continued['metrics']['global_step'], 2 * manifest['train']['examples'])
             self.assertEqual((root / 'first' / 'experiment.json').read_bytes(), manifest_before)
             evaluation = dict(model=str(root / 'continued'), split='validation', chain='dst' if task == 'dst' else 'full',

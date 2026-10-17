@@ -14,8 +14,8 @@ class StyledForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid.uuid4, widget=forms.HiddenInput)
     name = forms.CharField(label='Название', max_length=100, required=False)
     local_files_only = forms.BooleanField(label='Использовать только локальные файлы модели', required=False)
-    limit_episodes = forms.IntegerField(label='Ограничить число эпизодов в каждом split', required=False, min_value=1, initial=5,
-                                       help_text='Пусто — весь датасет. Для короткой проверки можно указать несколько эпизодов.')
+    limit_episodes = forms.IntegerField(label='Ограничить число эпизодов в каждом split', required=False, min_value=0, initial=5,
+                                       help_text='0 или пусто — весь датасет. Для короткой проверки можно указать несколько эпизодов.')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -23,8 +23,14 @@ class StyledForm(forms.Form):
             field.widget.attrs['class'] = ('form-check-input' if isinstance(field.widget, forms.CheckboxInput)
                                            else 'form-select' if isinstance(field.widget, forms.Select) else 'form-control')
 
+    def clean_limit_episodes(self):
+        # The worker slices with this value: None selects all rows, 0 selects none.
+        return self.cleaned_data['limit_episodes'] or None
+
 
 class TrainForm(StyledForm):
+    limit_episodes = forms.IntegerField(label='Ограничить число эпизодов в каждом split', required=False, min_value=0, initial=0,
+                                       help_text='0 или пусто — весь датасет. Для короткой проверки можно указать несколько эпизодов.')
     model = forms.CharField(label='Базовая модель', max_length=200, initial=TRAIN_DEFAULTS['model'])
     task = forms.ChoiceField(label='Задача', choices=[(x, x) for x in TRAIN_TASKS], initial='ubar')
     epochs = forms.FloatField(label='Общее число эпох', min_value=.01, initial=TRAIN_DEFAULTS['epochs'])
@@ -33,9 +39,8 @@ class TrainForm(StyledForm):
     learning_rate = forms.FloatField(label='Learning rate', min_value=1e-9, max_value=1, initial=TRAIN_DEFAULTS['learning_rate'])
     warmup_ratio = forms.FloatField(label='Warmup ratio', min_value=0, max_value=1, initial=TRAIN_DEFAULTS['warmup_ratio'])
     max_length = forms.IntegerField(label='Контекст (токены)', min_value=32, initial=TRAIN_DEFAULTS['max_length'])
-    style = forms.ChoiceField(label='Формат', choices=[('plain', 'Plain'), ('chatml', 'ChatML')], initial='plain')
+    style = forms.ChoiceField(label='Формат', choices=[('plain', 'Plain'), ('chatml', 'ChatML')], initial='chatml')
     loss_scope = forms.ChoiceField(label='Loss', choices=[('targets', 'Целевые сегменты'), ('all', 'Все токены UBAR')], initial='targets')
-    seed = forms.IntegerField(label='Seed', min_value=0, max_value=4294967295, initial=TRAIN_DEFAULTS['seed'])
     cpu = forms.BooleanField(label='Обучать на CPU', required=False)
 
     def clean(self):
@@ -47,7 +52,8 @@ class TrainForm(StyledForm):
         return cleaned
 
     def job_config(self):
-        return {key: value for key, value in self.cleaned_data.items() if key not in ('name', 'submission_id')} | jobs.data_config(('train', 'validation'))
+        config = {key: value for key, value in self.cleaned_data.items() if key not in ('name', 'submission_id')}
+        return config | {'seed': TRAIN_DEFAULTS['seed']} | jobs.data_config(('train', 'validation'))
 
 
 class BenchmarkForm(StyledForm):

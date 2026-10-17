@@ -5,7 +5,7 @@ EVAL_CHAINS = ('dst', 'extraction', 'policy', 'response', 'history', 'policy_res
 EVAL_CONTEXTS = ('reference', 'predicted')
 EVAL_USER_SOURCES = ('dataset', 'simulator')
 TRAIN_DEFAULTS = dict(model='gpt2', task='ubar', style='plain', loss_scope='targets',
-                      max_length=1024, epochs=2, batch_size=4, accumulation=1,
+                      max_length=1024, epochs=2, batch_size=8, accumulation=1,
                       learning_rate=8e-5, warmup_ratio=0.05, seed=42)
 
 

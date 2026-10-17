@@ -469,7 +469,7 @@ class BenchmarkTests(unittest.TestCase):
 
 class TrainerIntegrationTests(unittest.TestCase):
     def test_tiny_gpt2_optimizer_save_reload_and_generation_for_dst_and_ubar(self):
-        from transformers import GPT2Config, GPT2LMHeadModel
+        from transformers import GPT2Config, GPT2LMHeadModel, Trainer, TrainerCallback
         original_threads = torch.get_num_threads()
         torch.set_num_threads(1)
         self.addCleanup(torch.set_num_threads, original_threads)
@@ -483,10 +483,27 @@ class TrainerIntegrationTests(unittest.TestCase):
                         n_ctx=2048, n_embd=16, n_layer=1, n_head=2, eos_token_id=tokenizer.eos_token_id))
                     before = model.transformer.h[0].attn.c_attn.weight.detach().clone()
                     output = Path(temporary) / task
-                    metrics = train_experiment(model, tokenizer, train, validation, task=task, output=output,
-                        model_name='tiny-random-gpt2-test', max_length=2048, epochs=2,
-                        batch_size=1, warmup_ratio=0, use_cpu=True)
+                    rates = []
+                    class RecordLearningRate(TrainerCallback):
+                        def on_train_begin(self, args, state, control, **kwargs):
+                            rates.append(kwargs['optimizer'].param_groups[0]['lr'])
+                        def on_step_end(self, args, state, control, **kwargs):
+                            rates.append(kwargs['optimizer'].param_groups[0]['lr'])
+                    def recording_trainer(**kwargs):
+                        return Trainer(**kwargs, callbacks=[RecordLearningRate()])
+                    with patch('transformers.Trainer', side_effect=recording_trainer):
+                        metrics = train_experiment(model, tokenizer, train, validation, task=task, output=output,
+                            model_name='tiny-random-gpt2-test', max_length=2048, epochs=2,
+                            batch_size=1, warmup_ratio=.25, use_cpu=True)
                     manifest = json.loads((output / 'experiment.json').read_text())
+                    self.assertEqual(manifest['lr_scheduler_type'], 'constant_with_warmup')
+                    warmup_steps = math.ceil(metrics['global_step'] * .25)
+                    self.assertEqual(len(rates), metrics['global_step'] + 1)
+                    self.assertEqual(rates[0], 0)
+                    self.assertGreater(rates[1], 0)
+                    self.assertLess(rates[1], manifest['learning_rate'])
+                    for rate in rates[warmup_steps:]:
+                        self.assertAlmostEqual(rate, manifest['learning_rate'])
                     self.assertEqual(manifest['epochs'], 2)
                     self.assertEqual(metrics['epoch'], 2)
                     self.assertEqual(metrics['global_step'], 2 * manifest['train']['examples'])
